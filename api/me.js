@@ -1,71 +1,102 @@
+// api/me.js
 import { createClerkClient } from "@clerk/backend";
-import { Pool } from "pg";
+import pkg from "pg";
 
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
-});
+const { Pool } = pkg;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
+const clerk = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY,
+  publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+});
+
+function toWebRequest(req) {
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  const url = `${proto}://${host}${req.url}`;
+
+  // Copy headers into a real Headers object
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers || {})) {
+    if (typeof v === "string") headers.set(k, v);
+    // ignore array headers for now (not needed here)
+  }
+
+  return new Request(url, {
+    method: req.method,
+    headers,
+  });
+}
+
 export default async function handler(req, res) {
   try {
-    // 1. Get Bearer token from header
-    const authHeader = req.headers.authorization || "";
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    const token = match ? match[1] : null;
-
-    if (!token) {
-      return res.status(401).json({ ok: false, error: "Missing auth token" });
+    if (req.method !== "GET") {
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
     }
 
-    // 2. Verify session with Clerk
-    const session = await clerk.sessions.verifySession(token).catch(() => null);
+    // Authenticate via Clerk
+    const webReq = toWebRequest(req);
 
-    if (!session?.userId) {
+    // NOTE: authorizedParties is recommended, but keep it simple for now.
+    const authResult = await clerk.authenticateRequest(webReq);
+    if (!authResult?.isAuthenticated) {
+      return res.status(401).json({
+        ok: false,
+        error: "Unauthorized",
+        reason: authResult?.reason || null,
+      });
+    }
+
+    const auth = authResult.toAuth();
+    const clerkUserId = auth.userId;
+
+    if (!clerkUserId) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    const clerkUserId = session.userId;
-
-    // 3. Fetch user + roles from Neon
-    const result = await pool.query(
-      `
-      SELECT
+    // Pull app user + roles from Neon
+    const sql = `
+      select
         u.user_id,
+        u.clerk_user_id,
         u.email,
         u.display_name,
-        r.role_code,
-        r.role_name
-      FROM public.app_user u
-      LEFT JOIN public.user_role ur ON ur.user_id = u.user_id
-      LEFT JOIN public.role r ON r.role_id = ur.role_id
-      WHERE u.clerk_user_id = $1
-      `,
-      [clerkUserId]
-    );
+        coalesce(
+          json_agg(
+            json_build_object(
+              'role_code', r.role_code,
+              'role_name', r.role_name
+            )
+          ) filter (where r.role_code is not null),
+          '[]'::json
+        ) as roles
+      from public.app_user u
+      left join public.user_role ur on ur.user_id = u.user_id
+      left join public.role r on r.role_id = ur.role_id
+      where u.clerk_user_id = $1
+        and u.is_active = true
+      group by u.user_id, u.clerk_user_id, u.email, u.display_name
+      limit 1;
+    `;
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ ok: false, error: "User not found" });
+    const { rows } = await pool.query(sql, [clerkUserId]);
+
+    if (!rows.length) {
+      // Clerk user exists but not provisioned in app_user yet
+      return res.status(403).json({
+        ok: false,
+        error: "User not provisioned",
+        clerk_user_id: clerkUserId,
+      });
     }
 
-    const user = {
-      user_id: result.rows[0].user_id,
-      email: result.rows[0].email,
-      display_name: result.rows[0].display_name,
-      roles: result.rows
-        .filter(r => r.role_code)
-        .map(r => ({
-          role_code: r.role_code,
-          role_name: r.role_name,
-        })),
-    };
-
-    return res.status(200).json({ ok: true, data: user });
+    return res.status(200).json({ ok: true, data: rows[0] });
   } catch (err) {
-    console.error("API /me error:", err);
-    return res.status(500).json({ ok: false, error: "Server error" });
+    console.error("api/me error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
