@@ -26,9 +26,9 @@ const BORDER = "rgba(255,255,255,0.10)";
 const TEXT_DIM = "rgba(255,255,255,0.72)";
 const TEXT_DIM_2 = "rgba(255,255,255,0.58)";
 
-function cx(...parts) {
-  return parts.filter(Boolean).join(" ");
-}
+const CONTENT_MAX = 1720;
+const PAGE_PAD_X = "clamp(14px, 2.2vw, 40px)";
+const PAGE_PAD_Y = "clamp(12px, 1.6vw, 24px)";
 
 function useIsMobile(breakpointPx = 980) {
   const [isMobile, setIsMobile] = useState(() => {
@@ -47,8 +47,25 @@ function useIsMobile(breakpointPx = 980) {
   return isMobile;
 }
 
+// For dashboard layout specifically (not the sidebar/drawer breakpoint)
+function useIsNarrowDashboard(breakpointPx = 1200) {
+  const [isNarrow, setIsNarrow] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < breakpointPx;
+  });
+
+  useEffect(() => {
+    function onResize() {
+      setIsNarrow(window.innerWidth < breakpointPx);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [breakpointPx]);
+
+  return isNarrow;
+}
+
 function Icon({ name }) {
-  // Minimal inline icons (keeps deps at zero)
   const common = {
     width: 18,
     height: 18,
@@ -275,7 +292,6 @@ function SidebarNav({ items, activeKey, onSelect, footer }) {
               letterSpacing: 0.5,
             }}
           >
-            {/* swapped old "OK" badge for the real logo */}
             <OkValLogo size={26} />
           </div>
           <div>
@@ -341,21 +357,29 @@ function SidebarNav({ items, activeKey, onSelect, footer }) {
 }
 
 function DashboardHome({ me, status, error, onRefresh }) {
+  const isNarrow = useIsNarrowDashboard(1200);
+
   const roles = Array.isArray(me?.roles) ? me.roles : [];
   const roleCodes = roles.map((r) => String(r?.role_code || "").toLowerCase()).filter(Boolean);
-
   const tone = status === "ok" ? "ok" : status === "error" ? "bad" : "warn";
+
+  // Responsive layout:
+  // - narrow: single column
+  // - wide: 7/5 split
+  const gridTemplateColumns = isNarrow ? "1fr" : "repeat(12, 1fr)";
+  const leftSpan = isNarrow ? "1 / -1" : "span 7";
+  const rightSpan = isNarrow ? "1 / -1" : "span 5";
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 20, fontWeight: 1000, letterSpacing: 0.2 }}>Dashboard</div>
           <div style={{ marginTop: 6, fontSize: 13, color: TEXT_DIM }}>
             You’re signed in. Next step: wire pages to real endpoints and role gates.
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <Pill tone={tone}>
             <Icon name="dot" />
             {status}
@@ -366,8 +390,8 @@ function DashboardHome({ me, status, error, onRefresh }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(12, 1fr)" }}>
-        <div style={{ gridColumn: "span 7", minWidth: 0 }}>
+      <div style={{ display: "grid", gap: 14, gridTemplateColumns }}>
+        <div style={{ gridColumn: leftSpan, minWidth: 0 }}>
           <Card
             title="Your profile"
             subtitle="Pulled from /api/me (Clerk token → Vercel function → Neon)."
@@ -384,17 +408,15 @@ function DashboardHome({ me, status, error, onRefresh }) {
             }
           >
             <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "140px 1fr" }}>
+              <div style={{ display: "grid", gap: 8, gridTemplateColumns: isNarrow ? "1fr" : "140px 1fr" }}>
                 <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Display name</div>
                 <div style={{ fontSize: 13, fontWeight: 900 }}>{me?.display_name || "—"}</div>
 
                 <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Email</div>
-                <div style={{ fontSize: 13, fontWeight: 900 }}>{me?.email || "—"}</div>
+                <div style={{ fontSize: 13, fontWeight: 900, overflowWrap: "anywhere" }}>{me?.email || "—"}</div>
 
                 <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>User ID</div>
-                <div style={{ fontSize: 13, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {me?.user_id || "—"}
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 900, overflowWrap: "anywhere" }}>{me?.user_id || "—"}</div>
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -414,10 +436,10 @@ function DashboardHome({ me, status, error, onRefresh }) {
           </Card>
         </div>
 
-        <div style={{ gridColumn: "span 5", minWidth: 0 }}>
+        <div style={{ gridColumn: rightSpan, minWidth: 0 }}>
           <Card title="Next build targets" subtitle="These are the highest-value UX wins after auth is stable.">
             <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <Pill>
                   <Icon name="book" /> Question bank
                 </Pill>
@@ -468,7 +490,7 @@ function AppShell() {
   const isMobile = useIsMobile(980);
 
   const [me, setMe] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | ok | error
+  const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
   const [active, setActive] = useState("dashboard");
@@ -486,9 +508,7 @@ function AppShell() {
       { key: "reports", label: "Reports", icon: <Icon name="chart" /> },
     ];
 
-    if (isAdmin) {
-      base.push({ key: "admin", label: "Admin", icon: <Icon name="shield" /> });
-    }
+    if (isAdmin) base.push({ key: "admin", label: "Admin", icon: <Icon name="shield" /> });
     return base;
   }, [me]);
 
@@ -503,9 +523,7 @@ function AppShell() {
       });
       const json = await res.json();
 
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || `HTTP ${res.status}`);
-      }
+      if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
 
       setMe(json.data);
       setStatus("ok");
@@ -529,9 +547,7 @@ function AppShell() {
         });
         const json = await res.json();
 
-        if (!res.ok || !json.ok) {
-          throw new Error(json.error || `HTTP ${res.status}`);
-        }
+        if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
 
         if (!cancelled) {
           setMe(json.data);
@@ -550,71 +566,55 @@ function AppShell() {
     };
   }, [getToken]);
 
-  // Close sidebar drawer when switching pages on mobile
   function selectPage(key) {
     setActive(key);
     if (isMobile) setSidebarOpen(false);
   }
 
   const content = (() => {
-    if (active === "dashboard") {
-      return <DashboardHome me={me} status={status} error={error} onRefresh={loadMe} />;
-    }
-    if (active === "questions") {
+    if (active === "dashboard") return <DashboardHome me={me} status={status} error={error} onRefresh={loadMe} />;
+    if (active === "questions")
       return (
         <PlaceholderPage
           title="Question Bank"
           description="Browse domains, add/edit questions (role-gated), and manage activation status."
         />
       );
-    }
-    if (active === "quizzes") {
+    if (active === "quizzes")
       return (
         <PlaceholderPage
           title="Quizzes"
           description="Start a quiz session, get immediate feedback, and record domain proficiency."
         />
       );
-    }
-    if (active === "reports") {
+    if (active === "reports")
       return (
         <PlaceholderPage
           title="Reports"
           description="Proficiency breakdown by domain and role-based reporting views."
         />
       );
-    }
-    if (active === "admin") {
+    if (active === "admin")
       return (
         <PlaceholderPage
           title="Admin"
           description="User role management and audit-friendly configuration (admin only)."
         />
       );
-    }
     return null;
   })();
 
   return (
     <div style={{ minHeight: "100vh", background: BG, color: "white" }}>
-      {/* tiny global styles */}
       <style>{`
         * { box-sizing: border-box; }
         ::selection { background: rgba(0,255,170,0.22); }
-        /* nice scrollbars (Chromium) */
         ::-webkit-scrollbar { width: 10px; height: 10px; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.20); }
       `}</style>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: isMobile ? "1fr" : "280px 1fr",
-          minHeight: "100vh",
-        }}
-      >
-        {/* Sidebar (desktop) */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "280px 1fr", minHeight: "100vh" }}>
         {!isMobile ? (
           <aside
             style={{
@@ -642,9 +642,7 @@ function AppShell() {
           </aside>
         ) : null}
 
-        {/* Main area */}
         <div style={{ minWidth: 0 }}>
-          {/* Top bar */}
           <header
             style={{
               position: "sticky",
@@ -657,9 +655,10 @@ function AppShell() {
           >
             <div
               style={{
-                maxWidth: 1180,
+                width: "100%",
+                maxWidth: CONTENT_MAX,
                 margin: "0 auto",
-                padding: "12px 14px",
+                padding: `${PAGE_PAD_Y} ${PAGE_PAD_X}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
@@ -668,11 +667,7 @@ function AppShell() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {isMobile ? (
-                  <GhostButton
-                    onClick={() => setSidebarOpen(true)}
-                    icon={<Icon name="menu" />}
-                    ariaLabel="Open navigation"
-                  />
+                  <GhostButton onClick={() => setSidebarOpen(true)} icon={<Icon name="menu" />} ariaLabel="Open navigation" />
                 ) : null}
 
                 <div style={{ display: "grid" }}>
@@ -692,8 +687,7 @@ function AppShell() {
             </div>
           </header>
 
-          {/* Content */}
-          <main style={{ maxWidth: 1180, margin: "0 auto", padding: 14 }}>
+          <main style={{ width: "100%", maxWidth: CONTENT_MAX, margin: "0 auto", padding: `${PAGE_PAD_Y} ${PAGE_PAD_X}` }}>
             <div
               style={{
                 border: `1px solid ${BORDER}`,
@@ -707,7 +701,6 @@ function AppShell() {
           </main>
         </div>
 
-        {/* Mobile drawer sidebar */}
         {isMobile && sidebarOpen ? (
           <div
             role="dialog"
