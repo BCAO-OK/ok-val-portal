@@ -9,6 +9,14 @@ import {
 
 import OkValLogo from "./components/OkValLogo";
 
+/**
+ * OK-VAL App Shell (modernized)
+ * - Dark app background
+ * - Navy sidebar navigation
+ * - Responsive (mobile drawer)
+ * - Role-aware nav (Admin shows only if system_admin/admin)
+ * - Still uses /api/me with Clerk token
+ */
 
 const NAVY = "#0B1B3A"; // sidebar navy
 const BG = "#0A0C10"; // overall dark background
@@ -21,6 +29,11 @@ const TEXT_DIM_2 = "rgba(255,255,255,0.58)";
 const CONTENT_MAX = 1720;
 const PAGE_PAD_X = "clamp(14px, 2.2vw, 40px)";
 const PAGE_PAD_Y = "clamp(12px, 1.6vw, 24px)";
+
+const BRAND_BLUE = "#60a5fa";
+const BRAND_FONT_STACK =
+  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"';
+const BRAND_LETTER_SPACING = 0.8;
 
 function useIsMobile(breakpointPx = 980) {
   const [isMobile, setIsMobile] = useState(() => {
@@ -57,11 +70,30 @@ function useIsNarrowDashboard(breakpointPx = 1200) {
   return isNarrow;
 }
 
+function BrandWordmark({ size = 18 }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        gap: 0,
+        fontFamily: BRAND_FONT_STACK,
+        fontWeight: 950,
+        letterSpacing: BRAND_LETTER_SPACING,
+        lineHeight: 1,
+      }}
+    >
+      <span style={{ color: "white", fontSize: size }}>OK</span>
+      <span style={{ color: BRAND_BLUE, fontSize: size }}>VAL</span>
+    </div>
+  );
+}
+
 function Icon({ name }) {
   const common = {
-    width: 32,
-    height: 32,
-    viewBox: "0 0 48 48",
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
     strokeWidth: 2,
@@ -269,26 +301,26 @@ function SidebarNav({ items, activeKey, onSelect, footer }) {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: 10,
+              width: 68,
+              height: 68,
+              borderRadius: 18,
               background: "rgba(255,255,255,0.10)",
               border: "1px solid rgba(255,255,255,0.14)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontWeight: 1000,
-              letterSpacing: 0.5,
+              flex: "0 0 auto",
             }}
           >
-            <OkValLogo size={26} />
+            <OkValLogo size={52} />
           </div>
-          <div>
-            <div style={{ fontWeight: 1000, letterSpacing: 0.6 }}>OK-VAL</div>
-            <div style={{ marginTop: 2, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+
+          <div style={{ minWidth: 0 }}>
+            <BrandWordmark size={18} />
+            <div style={{ marginTop: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
               Training + compliance
             </div>
           </div>
@@ -355,9 +387,6 @@ function DashboardHome({ me, status, error, onRefresh }) {
   const roleCodes = roles.map((r) => String(r?.role_code || "").toLowerCase()).filter(Boolean);
   const tone = status === "ok" ? "ok" : status === "error" ? "bad" : "warn";
 
-  // Responsive layout:
-  // - narrow: single column
-  // - wide: 7/5 split
   const gridTemplateColumns = isNarrow ? "1fr" : "repeat(12, 1fr)";
   const leftSpan = isNarrow ? "1 / -1" : "span 7";
   const rightSpan = isNarrow ? "1 / -1" : "span 5";
@@ -659,11 +688,15 @@ function AppShell() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {isMobile ? (
-                  <GhostButton onClick={() => setSidebarOpen(true)} icon={<Icon name="menu" />} ariaLabel="Open navigation" />
+                  <GhostButton
+                    onClick={() => setSidebarOpen(true)}
+                    icon={<Icon name="menu" />}
+                    ariaLabel="Open navigation"
+                  />
                 ) : null}
 
                 <div style={{ display: "grid" }}>
-                  <div style={{ fontWeight: 1000, letterSpacing: 0.4 }}>OK-VAL</div>
+                  <BrandWordmark size={18} />
                   <div style={{ fontSize: 12, color: TEXT_DIM_2 }}>
                     {active === "dashboard" ? "Overview" : navItems.find((x) => x.key === active)?.label || ""}
                   </div>
@@ -709,8 +742,8 @@ function AppShell() {
             <div
               onClick={(e) => e.stopPropagation()}
               style={{
-                width: 300,
-                maxWidth: "85vw",
+                width: 320,
+                maxWidth: "88vw",
                 background: NAVY,
                 borderRight: "1px solid rgba(255,255,255,0.12)",
                 height: "100%",
@@ -765,7 +798,7 @@ export default function App() {
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 1000, letterSpacing: 0.3 }}>OK-VAL</div>
+                <BrandWordmark size={20} />
                 <div style={{ marginTop: 6, color: TEXT_DIM, fontSize: 13, lineHeight: 1.4 }}>
                   Sign in to access training, quizzes, and role-based tools.
                 </div>
