@@ -9,14 +9,6 @@ import {
 
 import OkValLogo from "./components/OkValLogo";
 
-/**
- * OK-VAL App Shell (modernized)
- * - Dark app background
- * - Navy sidebar navigation
- * - Responsive (mobile drawer)
- * - Role-aware nav (Admin shows only if system_admin/admin)
- * - Still uses /api/me with Clerk token
- */
 
 const NAVY = "#0B1B3A"; // sidebar navy
 const BG = "#0A0C10"; // overall dark background
@@ -67,9 +59,9 @@ function useIsNarrowDashboard(breakpointPx = 1200) {
 
 function Icon({ name }) {
   const common = {
-    width: 18,
-    height: 18,
-    viewBox: "0 0 24 24",
+    width: 32,
+    height: 32,
+    viewBox: "0 0 48 48",
     fill: "none",
     stroke: "currentColor",
     strokeWidth: 2,
