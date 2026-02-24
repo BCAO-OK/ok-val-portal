@@ -29,35 +29,21 @@ function toWebRequest(req) {
 
 async function getAppUser(req) {
   const webReq = toWebRequest(req);
-
   const authResult = await clerk.authenticateRequest(webReq);
+
   if (!authResult?.isAuthenticated) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Unauthorized",
-      reason: authResult?.reason || null,
-    };
-  }
-
-  const auth = authResult.toAuth();
-  const clerkUserId = auth.userId;
-
-  if (!clerkUserId) {
     return { ok: false, status: 401, error: "Unauthorized" };
   }
+
+  const clerkUserId = authResult.toAuth().userId;
 
   const sql = `
     select
       u.user_id,
-      u.clerk_user_id,
-      u.email,
-      u.display_name,
       coalesce(
         json_agg(
           json_build_object(
-            'role_code', r.role_code,
-            'role_name', r.role_name
+            'role_code', r.role_code
           )
         ) filter (where r.role_code is not null),
         '[]'::json
@@ -67,19 +53,14 @@ async function getAppUser(req) {
     left join public.role r on r.role_id = ur.role_id
     where u.clerk_user_id = $1
       and u.is_active = true
-    group by u.user_id, u.clerk_user_id, u.email, u.display_name
+    group by u.user_id
     limit 1;
   `;
 
   const { rows } = await pool.query(sql, [clerkUserId]);
 
   if (!rows.length) {
-    return {
-      ok: false,
-      status: 403,
-      error: "User not provisioned",
-      clerk_user_id: clerkUserId,
-    };
+    return { ok: false, status: 403, error: "User not provisioned" };
   }
 
   return { ok: true, user: rows[0] };
@@ -88,13 +69,12 @@ async function getAppUser(req) {
 function hasEditRights(appUser) {
   const roles = Array.isArray(appUser?.roles) ? appUser.roles : [];
   const codes = new Set(roles.map((r) => r?.role_code).filter(Boolean));
-  return codes.has("system_admin") || codes.has("admin") || codes.has("editor");
+  return codes.has("db_admin") || codes.has("db_editor");
 }
 
 function normalizeChoices(choices) {
   if (!Array.isArray(choices)) return null;
 
-  // Must be exactly 4
   if (choices.length !== 4) {
     throw new Error("choices must include exactly 4 items (A, B, C, D).");
   }
@@ -116,7 +96,6 @@ function normalizeChoices(choices) {
     return { choice_label: label, choice_text: text, is_correct: isCorrect };
   });
 
-  // Must include all 4 labels
   for (const lbl of ["A", "B", "C", "D"]) {
     if (!seen.has(lbl)) throw new Error("choices must include labels A, B, C, and D.");
   }
@@ -126,7 +105,6 @@ function normalizeChoices(choices) {
     throw new Error("choices must have exactly 1 correct answer (is_correct=true).");
   }
 
-  // Sort consistent order
   normalized.sort((a, b) => a.choice_label.localeCompare(b.choice_label));
   return normalized;
 }
@@ -134,11 +112,7 @@ function normalizeChoices(choices) {
 export default async function handler(req, res) {
   try {
     const me = await getAppUser(req);
-    if (!me.ok) {
-      return res
-        .status(me.status)
-        .json({ ok: false, error: me.error, reason: me.reason || null });
-    }
+    if (!me.ok) return res.status(me.status).json({ ok: false, error: me.error });
 
     const questionId = req.query?.id;
     if (!questionId) {
@@ -147,7 +121,6 @@ export default async function handler(req, res) {
 
     // -------------------------
     // PUT /api/questions/:id
-    // Supports updating question fields AND (optionally) replacing choices
     // -------------------------
     if (req.method === "PUT") {
       if (!hasEditRights(me.user)) {
@@ -161,7 +134,8 @@ export default async function handler(req, res) {
         citation_text,
         difficulty,
         is_active,
-        choices, // optional: [{choice_label, choice_text, is_correct}, ...]
+        is_verified, // NEW
+        choices, // optional
       } = req.body || {};
 
       const normalizedChoices = choices !== undefined ? normalizeChoices(choices) : null;
@@ -169,6 +143,16 @@ export default async function handler(req, res) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+
+        // Verify question exists
+        const exists = await client.query(
+          `select question_id from public.question where question_id = $1::uuid limit 1;`,
+          [questionId]
+        );
+        if (!exists.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ ok: false, error: "Question not found" });
+        }
 
         // ----- Partial update question -----
         const fields = [];
@@ -206,58 +190,43 @@ export default async function handler(req, res) {
           idx++;
         }
 
+        // Verification stamping logic
+        if (is_verified !== undefined) {
+          const v = Boolean(is_verified);
+          fields.push(`is_verified = $${idx}::boolean`);
+          values.push(v);
+          idx++;
+
+          if (v) {
+            fields.push(`verified_by = $${idx}::uuid`);
+            values.push(me.user.user_id);
+            idx++;
+            fields.push(`verified_at = now()`);
+          } else {
+            fields.push(`verified_by = null`);
+            fields.push(`verified_at = null`);
+          }
+        }
+
         // Always update audit fields
         fields.push(`updated_by = $${idx}::uuid`);
         values.push(me.user.user_id);
         idx++;
-
         fields.push(`updated_at = now()`);
 
-        let updatedQuestion = null;
-
-        // If they provided question fields, run UPDATE.
-        // If they only provided choices, we still want to ensure the question exists.
-        if (fields.length > 2 /* updated_by + updated_at */) {
+        if (fields.length) {
           values.push(questionId);
           const updateSql = `
             update public.question
             set ${fields.join(", ")}
             where question_id = $${idx}::uuid
-            returning
-              question_id,
-              domain_id,
-              prompt,
-              explanation,
-              citation_text,
-              difficulty,
-              is_active,
-              created_at,
-              updated_at,
-              created_by,
-              updated_by;
+            returning *;
           `;
-          const qRes = await client.query(updateSql, values);
-          if (!qRes.rows.length) {
-            await client.query("ROLLBACK");
-            return res.status(404).json({ ok: false, error: "Question not found" });
-          }
-          updatedQuestion = qRes.rows[0];
-        } else {
-          // No question fields provided; just verify it exists
-          const existsRes = await client.query(
-            `select question_id from public.question where question_id = $1::uuid limit 1;`,
-            [questionId]
-          );
-          if (!existsRes.rows.length) {
-            await client.query("ROLLBACK");
-            return res.status(404).json({ ok: false, error: "Question not found" });
-          }
+          await client.query(updateSql, values);
         }
 
         // ----- Replace choices (if provided) -----
-        let updatedChoices = null;
         if (normalizedChoices) {
-          // Hard replace the set of choices for audit clarity
           await client.query(`delete from public.choice where question_id = $1::uuid;`, [
             questionId,
           ]);
@@ -277,16 +246,11 @@ export default async function handler(req, res) {
               question_id,
               choice_label,
               choice_text,
-              is_correct,
-              created_at,
-              updated_at,
-              created_by,
-              updated_by;
+              is_correct;
           `;
 
-          const inserted = [];
           for (const c of normalizedChoices) {
-            const r = await client.query(insertSql, [
+            await client.query(insertSql, [
               questionId,
               c.choice_label,
               c.choice_text,
@@ -294,53 +258,51 @@ export default async function handler(req, res) {
               me.user.user_id,
               me.user.user_id,
             ]);
-            inserted.push(r.rows[0]);
           }
-
-          // Return in A-D order
-          inserted.sort((a, b) => a.choice_label.localeCompare(b.choice_label));
-          updatedChoices = inserted;
         }
 
         await client.query("COMMIT");
 
-        // If we didn't update question fields, fetch full row for response consistency
-        if (!updatedQuestion) {
-          const { rows } = await pool.query(
-            `
-            select
-              question_id,
-              domain_id,
-              prompt,
-              explanation,
-              citation_text,
-              difficulty,
-              is_active,
-              created_at,
-              updated_at,
-              created_by,
-              updated_by
-            from public.question
-            where question_id = $1::uuid
-            limit 1;
-            `,
-            [questionId]
-          );
-          updatedQuestion = rows[0] || null;
-        }
+        // Return updated question + choices
+        const out = await pool.query(
+          `
+          select
+            q.question_id,
+            q.prompt,
+            q.explanation,
+            q.citation_text,
+            q.difficulty,
+            q.is_active,
+            q.is_verified,
+            q.verified_by,
+            q.verified_at,
+            q.domain_id,
+            coalesce(
+              json_agg(
+                json_build_object(
+                  'choice_id', ch.choice_id,
+                  'choice_label', ch.choice_label,
+                  'choice_text', ch.choice_text,
+                  'is_correct', ch.is_correct
+                )
+                order by ch.choice_label
+              ) filter (where ch.choice_id is not null),
+              '[]'::json
+            ) as choices
+          from public.question q
+          left join public.choice ch on ch.question_id = q.question_id
+          where q.question_id = $1::uuid
+          group by q.question_id
+          limit 1;
+          `,
+          [questionId]
+        );
 
-        return res.status(200).json({
-          ok: true,
-          data: {
-            question: updatedQuestion,
-            choices: updatedChoices, // null if not provided in request
-          },
-        });
+        return res.status(200).json({ ok: true, data: out.rows[0] });
       } catch (err) {
         try {
           await client.query("ROLLBACK");
-        } catch { }
-        // Common: unique constraint for "one correct" or (question_id, choice_label)
+        } catch {}
         return res.status(400).json({ ok: false, error: err.message || "Update failed" });
       } finally {
         client.release();
@@ -348,42 +310,30 @@ export default async function handler(req, res) {
     }
 
     // -------------------------
-    // DELETE /api/questions/:id
-    // soft delete -> question.is_active=false
+    // DELETE /api/questions/:id (SOFT)
     // -------------------------
     if (req.method === "DELETE") {
       if (!hasEditRights(me.user)) {
         return res.status(403).json({ ok: false, error: "Forbidden" });
       }
 
-      const deleteSql = `
+      const sql = `
         update public.question
         set
           is_active = false,
           updated_by = $1::uuid,
           updated_at = now()
         where question_id = $2::uuid
-        returning
-          question_id,
-          domain_id,
-          prompt,
-          explanation,
-          citation_text,
-          difficulty,
-          is_active,
-          created_at,
-          updated_at,
-          created_by,
-          updated_by;
+        returning question_id;
       `;
 
-      const { rows } = await pool.query(deleteSql, [me.user.user_id, questionId]);
+      const { rows } = await pool.query(sql, [me.user.user_id, questionId]);
 
       if (!rows.length) {
         return res.status(404).json({ ok: false, error: "Question not found" });
       }
 
-      return res.status(200).json({ ok: true, data: rows[0] });
+      return res.status(200).json({ ok: true, data: { question_id: rows[0].question_id } });
     }
 
     return res.status(405).json({ ok: false, error: "Method not allowed" });

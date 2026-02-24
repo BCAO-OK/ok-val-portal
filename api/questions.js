@@ -29,36 +29,21 @@ function toWebRequest(req) {
 
 async function getAppUser(req) {
   const webReq = toWebRequest(req);
-
   const authResult = await clerk.authenticateRequest(webReq);
+
   if (!authResult?.isAuthenticated) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Unauthorized",
-      reason: authResult?.reason || null,
-    };
-  }
-
-  const auth = authResult.toAuth();
-  const clerkUserId = auth.userId;
-
-  if (!clerkUserId) {
     return { ok: false, status: 401, error: "Unauthorized" };
   }
 
-  // Same user lookup as api/me.js
+  const clerkUserId = authResult.toAuth().userId;
+
   const sql = `
     select
       u.user_id,
-      u.clerk_user_id,
-      u.email,
-      u.display_name,
       coalesce(
         json_agg(
           json_build_object(
-            'role_code', r.role_code,
-            'role_name', r.role_name
+            'role_code', r.role_code
           )
         ) filter (where r.role_code is not null),
         '[]'::json
@@ -68,19 +53,14 @@ async function getAppUser(req) {
     left join public.role r on r.role_id = ur.role_id
     where u.clerk_user_id = $1
       and u.is_active = true
-    group by u.user_id, u.clerk_user_id, u.email, u.display_name
+    group by u.user_id
     limit 1;
   `;
 
   const { rows } = await pool.query(sql, [clerkUserId]);
 
   if (!rows.length) {
-    return {
-      ok: false,
-      status: 403,
-      error: "User not provisioned",
-      clerk_user_id: clerkUserId,
-    };
+    return { ok: false, status: 403, error: "User not provisioned" };
   }
 
   return { ok: true, user: rows[0] };
@@ -88,93 +68,83 @@ async function getAppUser(req) {
 
 function hasEditRights(appUser) {
   const roles = Array.isArray(appUser?.roles) ? appUser.roles : [];
-  const codes = new Set(roles.map((r) => r?.role_code).filter(Boolean));
-  return codes.has("system_admin") || codes.has("admin") || codes.has("editor");
+  const codes = new Set(roles.map(r => r.role_code));
+  return codes.has("db_admin") || codes.has("db_editor");
 }
 
 function normalizeChoices(choices) {
-  if (!Array.isArray(choices)) return null;
-
-  if (choices.length !== 4) {
-    throw new Error("choices must include exactly 4 items (A, B, C, D).");
+  if (!Array.isArray(choices) || choices.length !== 4) {
+    throw new Error("Exactly 4 choices (A-D) required.");
   }
 
   const allowed = new Set(["A", "B", "C", "D"]);
   const seen = new Set();
 
-  const normalized = choices.map((c) => {
-    const label = String(c.choice_label || "").trim().toUpperCase();
-    const text = String(c.choice_text || "").trim();
-    const isCorrect = Boolean(c.is_correct);
-
-    if (!allowed.has(label)) throw new Error("choice_label must be one of A, B, C, D.");
-    if (seen.has(label)) throw new Error("Duplicate choice_label detected.");
+  const normalized = choices.map(c => {
+    const label = String(c.choice_label).toUpperCase();
+    if (!allowed.has(label) || seen.has(label)) {
+      throw new Error("Invalid or duplicate choice_label.");
+    }
     seen.add(label);
 
-    if (!text) throw new Error("choice_text cannot be empty.");
-
-    return { choice_label: label, choice_text: text, is_correct: isCorrect };
+    return {
+      choice_label: label,
+      choice_text: String(c.choice_text),
+      is_correct: Boolean(c.is_correct)
+    };
   });
 
-  for (const lbl of ["A", "B", "C", "D"]) {
-    if (!seen.has(lbl)) throw new Error("choices must include labels A, B, C, and D.");
+  if (normalized.filter(c => c.is_correct).length !== 1) {
+    throw new Error("Exactly one correct answer required.");
   }
 
-  const correctCount = normalized.filter((c) => c.is_correct).length;
-  if (correctCount !== 1) {
-    throw new Error("choices must have exactly 1 correct answer (is_correct=true).");
-  }
-
-  normalized.sort((a, b) => a.choice_label.localeCompare(b.choice_label));
-  return normalized;
+  return normalized.sort((a,b)=>a.choice_label.localeCompare(b.choice_label));
 }
 
 export default async function handler(req, res) {
   try {
     const me = await getAppUser(req);
-    if (!me.ok) {
-      return res
-        .status(me.status)
-        .json({ ok: false, error: me.error, reason: me.reason || null });
-    }
+    if (!me.ok) return res.status(me.status).json({ ok:false, error:me.error });
 
     // =========================
-    // GET - List questions (+ names + choices)
+    // GET QUESTIONS
     // =========================
     if (req.method === "GET") {
+
       const {
         q = "",
         category_id = "",
         domain_id = "",
         difficulty = "",
         active = "true",
+        verified = "",
         page = "1",
-        pageSize = "25",
+        pageSize = "25"
       } = req.query;
 
-      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-      const pageSizeNum = Math.min(Math.max(parseInt(pageSize, 10) || 25, 1), 100);
+      const pageNum = Math.max(parseInt(page)||1,1);
+      const pageSizeNum = Math.min(Math.max(parseInt(pageSize)||25,1),100);
       const offset = (pageNum - 1) * pageSizeNum;
 
       const wantsActive = active === "true";
+      const verifiedFilter =
+        verified === "" ? null :
+        verified === "true" ? true :
+        verified === "false" ? false : null;
 
       const sql = `
         select
           q.question_id,
-          q.domain_id,
-          d.domain_name,
-          d.category_id,
-          cat.category_name,
-
           q.prompt,
           q.explanation,
           q.citation_text,
           q.difficulty,
           q.is_active,
-          q.created_at,
-          q.updated_at,
-          q.created_by,
-          q.updated_by,
+          q.is_verified,
+          q.domain_id,
+          d.domain_name,
+          d.category_id,
+          cat.category_name,
 
           coalesce(
             json_agg(
@@ -189,7 +159,7 @@ export default async function handler(req, res) {
             '[]'::json
           ) as choices,
 
-          max(case when ch.is_correct then ch.choice_label else null end) as correct_choice_label
+          max(case when ch.is_correct then ch.choice_label end) as correct_choice_label
 
         from public.question q
         join public.domain d on d.domain_id = q.domain_id
@@ -197,55 +167,45 @@ export default async function handler(req, res) {
         left join public.choice ch on ch.question_id = q.question_id
 
         where
-          ($1::text = '' or q.prompt ilike ('%' || $1 || '%'))
-          and ($2::uuid is null or d.category_id = $2::uuid)
-          and ($3::uuid is null or q.domain_id = $3::uuid)
-          and ($4::smallint is null or q.difficulty = $4::smallint)
-          and (q.is_active = $5::boolean)
+          ($1 = '' or q.prompt ilike ('%'||$1||'%'))
+          and ($2::uuid is null or d.category_id = $2)
+          and ($3::uuid is null or q.domain_id = $3)
+          and ($4::int is null or q.difficulty = $4)
+          and q.is_active = $5
+          and ($6::boolean is null or q.is_verified = $6)
           and d.is_active = true
           and cat.is_active = true
 
         group by
-          q.question_id,
-          q.domain_id,
-          d.domain_name,
-          d.category_id,
-          cat.category_name,
-          q.prompt,
-          q.explanation,
-          q.citation_text,
-          q.difficulty,
-          q.is_active,
-          q.created_at,
-          q.updated_at,
-          q.created_by,
-          q.updated_by
+          q.question_id, d.domain_name, d.category_id, cat.category_name
 
         order by q.updated_at desc
-        limit $6
-        offset $7;
+        limit $7
+        offset $8;
       `;
 
       const params = [
         q,
-        category_id ? category_id : null,
-        domain_id ? domain_id : null,
-        difficulty ? difficulty : null,
+        category_id || null,
+        domain_id || null,
+        difficulty || null,
         wantsActive,
+        verifiedFilter,
         pageSizeNum,
-        offset,
+        offset
       ];
 
       const { rows } = await pool.query(sql, params);
-      return res.status(200).json({ ok: true, data: rows });
+      return res.status(200).json({ ok:true, data:rows });
     }
 
     // =========================
-    // POST - Create question (+ 4 choices)
+    // CREATE QUESTION
     // =========================
     if (req.method === "POST") {
+
       if (!hasEditRights(me.user)) {
-        return res.status(403).json({ ok: false, error: "Forbidden" });
+        return res.status(403).json({ ok:false, error:"Forbidden" });
       }
 
       const {
@@ -254,132 +214,65 @@ export default async function handler(req, res) {
         explanation,
         citation_text,
         difficulty,
-        is_active = true,
-        choices,
-      } = req.body || {};
+        choices
+      } = req.body;
 
-      if (!domain_id || !prompt || !explanation || !citation_text || !difficulty) {
-        return res.status(400).json({
-          ok: false,
-          error:
-            "Missing required fields: domain_id, prompt, explanation, citation_text, difficulty",
-        });
-      }
-
-      const normalizedChoices = normalizeChoices(choices);
-      if (!normalizedChoices) {
-        return res.status(400).json({
-          ok: false,
-          error: "choices is required and must include exactly 4 items (A-D) with 1 correct.",
-        });
-      }
+      const normalized = normalizeChoices(choices);
 
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
 
-        const qSql = `
+        const qRes = await client.query(`
           insert into public.question (
-            domain_id,
-            prompt,
-            explanation,
-            citation_text,
-            difficulty,
-            is_active,
-            created_by,
-            updated_by
+            domain_id, prompt, explanation, citation_text,
+            difficulty, is_active, is_verified,
+            created_by, updated_by
           )
-          values ($1::uuid, $2::text, $3::text, $4::text, $5::smallint, $6::boolean, $7::uuid, $8::uuid)
-          returning
-            question_id,
-            domain_id,
-            prompt,
-            explanation,
-            citation_text,
-            difficulty,
-            is_active,
-            created_at,
-            updated_at,
-            created_by,
-            updated_by;
-        `;
-
-        const qParams = [
+          values ($1,$2,$3,$4,$5,true,false,$6,$6)
+          returning *;
+        `, [
           domain_id,
           prompt,
           explanation,
           citation_text,
           difficulty,
-          Boolean(is_active),
-          me.user.user_id,
-          me.user.user_id,
-        ];
+          me.user.user_id
+        ]);
 
-        const qRes = await client.query(qSql, qParams);
         const question = qRes.rows[0];
 
-        const cSql = `
-          insert into public.choice (
-            question_id,
-            choice_label,
-            choice_text,
-            is_correct,
-            created_by,
-            updated_by
-          )
-          values ($1::uuid, $2::text, $3::text, $4::boolean, $5::uuid, $6::uuid)
-          returning
-            choice_id,
-            question_id,
-            choice_label,
-            choice_text,
-            is_correct,
-            created_at,
-            updated_at,
-            created_by,
-            updated_by;
-        `;
-
-        const insertedChoices = [];
-        for (const c of normalizedChoices) {
-          const cRes = await client.query(cSql, [
+        for (const c of normalized) {
+          await client.query(`
+            insert into public.choice (
+              question_id, choice_label, choice_text,
+              is_correct, created_by, updated_by
+            )
+            values ($1,$2,$3,$4,$5,$5);
+          `, [
             question.question_id,
             c.choice_label,
             c.choice_text,
             c.is_correct,
-            me.user.user_id,
-            me.user.user_id,
+            me.user.user_id
           ]);
-          insertedChoices.push(cRes.rows[0]);
         }
-        insertedChoices.sort((a, b) => a.choice_label.localeCompare(b.choice_label));
 
         await client.query("COMMIT");
+        return res.status(201).json({ ok:true, data:question });
 
-        const correctChoiceLabel =
-          insertedChoices.find((x) => x.is_correct)?.choice_label || null;
-
-        return res.status(201).json({
-          ok: true,
-          data: {
-            ...question,
-            choices: insertedChoices,
-            correct_choice_label: correctChoiceLabel,
-          },
-        });
       } catch (err) {
-        try {
-          await client.query("ROLLBACK");
-        } catch { }
-        return res.status(400).json({ ok: false, error: err.message || "Create failed" });
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok:false, error:err.message });
       } finally {
         client.release();
       }
     }
 
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
+    return res.status(405).json({ ok:false, error:"Method not allowed" });
+
   } catch (err) {
-    console.error("api/questions error:", err);
-    return res.status(500).json({ ok: false, error: "Internal server error" });
+    console.error(err);
+    return res.status(500).json({ ok:false, error:"Server error" });
   }
 }

@@ -14,7 +14,7 @@ import OkValLogo from "./components/OkValLogo";
  * - Dark app background
  * - Navy sidebar navigation
  * - Responsive (mobile drawer)
- * - Role-aware nav (Admin shows only if system_admin/admin)
+ * - Role-aware nav (Admin shows only if app admin roles)
  * - Still uses /api/me with Clerk token
  */
 
@@ -403,11 +403,21 @@ function Dropdown({ label, value, options, onChange, hint, placeholder = "Select
           justifyContent: "space-between",
           gap: 10,
           cursor: "pointer",
+          // Allow long selected labels to truncate instead of spilling into neighboring fields
+          minWidth: 0,
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span
+          style={{
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+            flex: 1,
+          }}
+        >
           {selected ? selected.label : placeholder}
         </span>
         <span style={{ opacity: 0.6 }}>▾</span>
@@ -508,7 +518,7 @@ function Toggle({ label, checked, onChange, hint }) {
 function canEditQuestions(me) {
   const roles = Array.isArray(me?.roles) ? me.roles : [];
   const roleCodes = roles.map((r) => String(r?.role_code || "").toLowerCase()).filter(Boolean);
-  return roleCodes.includes("system_admin") || roleCodes.includes("admin") || roleCodes.includes("editor");
+  return roleCodes.includes("db_admin") || roleCodes.includes("db_editor");
 }
 
 function normalizeQuestionId(q) {
@@ -529,6 +539,7 @@ function QuestionBankPage({ me, getToken }) {
   const [domainId, setDomainId] = useState("");
   const [difficulty, setDifficulty] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
+  const [unverifiedOnly, setUnverifiedOnly] = useState(false);
 
   // Taxonomy options (so we never show UUIDs in the UI)
   const [categoryOptions, setCategoryOptions] = useState([]); // [{value,label}]
@@ -617,6 +628,7 @@ function QuestionBankPage({ me, getToken }) {
       if (domainId) params.set("domain_id", domainId);
       if (difficulty) params.set("difficulty", difficulty);
       params.set("active", activeOnly ? "true" : "false");
+      if (unverifiedOnly) params.set("verified", "false");
       params.set("page", String(page));
       params.set("pageSize", String(pageSize));
 
@@ -651,12 +663,12 @@ function QuestionBankPage({ me, getToken }) {
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categoryId, domainId, difficulty, activeOnly]);
+  }, [search, categoryId, domainId, difficulty, activeOnly, unverifiedOnly]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categoryId, domainId, difficulty, activeOnly]);
+  }, [search, categoryId, domainId, difficulty, activeOnly, unverifiedOnly]);
 
   // When category changes, clear domain if it no longer fits.
   useEffect(() => {
@@ -692,6 +704,7 @@ function QuestionBankPage({ me, getToken }) {
       explanation: "",
       citation_text: "",
       is_active: true,
+      is_verified: false,
     });
     setEditorOpen(true);
   }
@@ -716,6 +729,7 @@ function QuestionBankPage({ me, getToken }) {
       explanation: q?.explanation ?? "",
       citation_text: q?.citation_text ?? "",
       is_active: q?.is_active ?? true,
+      is_verified: q?.is_verified ?? false,
     });
     setEditorOpen(true);
   }
@@ -758,6 +772,7 @@ function QuestionBankPage({ me, getToken }) {
         explanation: String(draft.explanation).trim(),
         citation_text: String(draft.citation_text).trim(),
         is_active: Boolean(draft.is_active),
+        is_verified: Boolean(draft.is_verified),
         choices: [
           { choice_label: "A", choice_text: String(draft.choice_a).trim(), is_correct: correct === "A" },
           { choice_label: "B", choice_text: String(draft.choice_b).trim(), is_correct: correct === "B" },
@@ -901,7 +916,10 @@ function QuestionBankPage({ me, getToken }) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <Toggle label="Active only" checked={activeOnly} onChange={setActiveOnly} hint="hide inactive questions" />
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <Toggle label="Active only" checked={activeOnly} onChange={setActiveOnly} hint="hide inactive questions" />
+              <Toggle label="Unverified only" checked={unverifiedOnly} onChange={setUnverifiedOnly} hint="show questions not yet approved" />
+            </div>
             <div style={{ fontSize: 12, color: TEXT_DIM_2 }}>
               Showing <b style={{ color: "rgba(255,255,255,0.90)" }}>{showingFrom}</b>–<b style={{ color: "rgba(255,255,255,0.90)" }}>{showingTo}</b>
             </div>
@@ -916,7 +934,7 @@ function QuestionBankPage({ me, getToken }) {
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ textAlign: "left" }}>
-                {["Category", "Domain", "Diff", "Prompt", "Correct", "Active", "Actions"].map((h) => (
+                {["Category", "Domain", "Diff", "Prompt", "Correct", "Verified", "Active", "Actions"].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -936,7 +954,7 @@ function QuestionBankPage({ me, getToken }) {
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: 14, color: TEXT_DIM, fontSize: 13 }}>
+                  <td colSpan={8} style={{ padding: 14, color: TEXT_DIM, fontSize: 13 }}>
                     {loading ? "Loading…" : "No questions found for these filters."}
                   </td>
                 </tr>
@@ -944,6 +962,7 @@ function QuestionBankPage({ me, getToken }) {
                 items.map((q) => {
                   const id = normalizeQuestionId(q);
                   const activeFlag = q?.is_active ?? true;
+                  const verifiedFlag = q?.is_verified ?? false;
                   return (
                     <tr key={String(id ?? Math.random())}>
                       <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
@@ -965,6 +984,11 @@ function QuestionBankPage({ me, getToken }) {
                       <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
                         <Pill tone="ok">
                           <Icon name="check" /> {String(q?.correct_choice_label || "—")}
+                        </Pill>
+                      </td>
+                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
+                        <Pill tone={verifiedFlag ? "ok" : "warn"}>
+                          <Icon name={verifiedFlag ? "check" : "dot"} /> {verifiedFlag ? "yes" : "no"}
                         </Pill>
                       </td>
                       <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
@@ -1089,6 +1113,13 @@ function QuestionBankPage({ me, getToken }) {
                 checked={Boolean(draft.is_active)}
                 onChange={(v) => setDraft((d) => ({ ...d, is_active: v }))}
                 hint="inactive questions can be hidden from quizzes"
+              />
+
+              <Toggle
+                label="Verified"
+                checked={Boolean(draft.is_verified)}
+                onChange={(v) => setDraft((d) => ({ ...d, is_verified: v }))}
+                hint="mark this question as reviewed/approved"
               />
 
               <TextArea
