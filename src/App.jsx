@@ -353,6 +353,120 @@ function Select({ label, value, onChange, options, hint }) {
   );
 }
 
+function Dropdown({ label, value, options, onChange, hint, placeholder = "Select…" }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = React.useRef(null);
+
+  const selected = useMemo(() => {
+    const v = String(value ?? "");
+    return (options || []).find((o) => String(o.value) === v) || null;
+  }, [options, value]);
+
+  useEffect(() => {
+    function onDocMouseDown(e) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target)) setOpen(false);
+    }
+    function onKeyDown(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  return (
+    <div ref={rootRef} style={{ display: "grid", gap: 6, position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>{label}</div>
+        {hint ? <div style={{ fontSize: 11, color: TEXT_DIM_2 }}>{hint}</div> : null}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          textAlign: "left",
+          padding: "10px 12px",
+          borderRadius: 12,
+          border: `1px solid ${BORDER}`,
+          background: "rgba(255,255,255,0.04)",
+          color: "rgba(255,255,255,0.90)",
+          outline: "none",
+          fontSize: 13,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          cursor: "pointer",
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <span style={{ opacity: 0.6 }}>▾</span>
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            right: 0,
+            marginTop: 0,
+            width: "100%",
+            maxHeight: 280,
+            overflowY: "auto",
+            background: "#111827",
+            border: `1px solid ${BORDER}`,
+            borderRadius: 12,
+            boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
+            zIndex: 60,
+          }}
+        >
+          {(options || []).map((o) => {
+            const isSelected = String(o.value) === String(value ?? "");
+            return (
+              <div
+                key={String(o.value)}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  onChange(String(o.value));
+                  setOpen(false);
+                }}
+                style={{
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  color: "rgba(255,255,255,0.92)",
+                  background: isSelected ? "rgba(96,165,250,0.18)" : "transparent",
+                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isSelected ? "rgba(96,165,250,0.22)" : "rgba(255,255,255,0.06)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isSelected ? "rgba(96,165,250,0.18)" : "transparent";
+                }}
+              >
+                {o.label}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Toggle({ label, checked, onChange, hint }) {
   return (
     <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -752,21 +866,27 @@ function QuestionBankPage({ me, getToken }) {
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             <Input label="Search" value={search} onChange={setSearch} placeholder="Search prompt…" />
 
-            <Select
+            <Dropdown
               label="Category"
               value={categoryId}
-              onChange={setCategoryId}
+              onChange={(v) => {
+                setCategoryId(v);
+                // If category changes, clear domain if it no longer fits
+                setDomainId("");
+              }}
               options={categoryFilterOptions}
+              placeholder="All categories"
             />
 
-            <Select
+            <Dropdown
               label="Domain"
               value={domainId}
               onChange={setDomainId}
               options={filteredDomainOptions}
+              placeholder="All domains"
             />
 
-            <Select
+            <Dropdown
               label="Difficulty"
               value={difficulty}
               onChange={setDifficulty}
@@ -776,6 +896,7 @@ function QuestionBankPage({ me, getToken }) {
                 { value: "2", label: "2 (intermediate)" },
                 { value: "3", label: "3 (advanced)" },
               ]}
+              placeholder="All difficulty"
             />
           </div>
 
@@ -924,21 +1045,23 @@ function QuestionBankPage({ me, getToken }) {
           ) : (
             <div style={{ display: "grid", gap: 12 }}>
               <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-                <Select
+                <Dropdown
                   label="Category"
                   value={draft.category_id}
                   onChange={(v) => {
                     setDraft((d) => ({ ...d, category_id: v, domain_id: "" }));
                   }}
                   options={categoryEditorOptions}
+                  placeholder="Select category…"
                 />
-                <Select
+                <Dropdown
                   label="Domain"
                   value={draft.domain_id}
                   onChange={(v) => setDraft((d) => ({ ...d, domain_id: v }))}
                   options={domainEditorOptions}
+                  placeholder="Select domain…"
                 />
-                <Select
+                <Dropdown
                   label="Difficulty"
                   value={draft.difficulty}
                   onChange={(v) => setDraft((d) => ({ ...d, difficulty: v }))}
@@ -948,7 +1071,7 @@ function QuestionBankPage({ me, getToken }) {
                     { value: "3", label: "3 (advanced)" },
                   ]}
                 />
-                <Select
+                <Dropdown
                   label="Correct choice"
                   value={draft.correct_choice_label}
                   onChange={(v) => setDraft((d) => ({ ...d, correct_choice_label: v }))}
