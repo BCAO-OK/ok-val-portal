@@ -1,6 +1,6 @@
 // api/org-requests.js
-import { createClerkClient } from "@clerk/backend";
 import pkg from "pg";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 
 const { Pool } = pkg;
 
@@ -9,22 +9,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-const clerk = createClerkClient({
+// Keep for future endpoints; not required for verifyToken, but harmless and consistent.
+createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
   publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
 });
-
-function toWebRequest(req) {
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  const url = `${proto}://${host}${req.url}`;
-
-  const headers = new Headers();
-  for (const [k, v] of Object.entries(req.headers || {})) {
-    if (typeof v === "string") headers.set(k, v);
-  }
-  return new Request(url, { method: req.method, headers });
-}
 
 async function getAppUserByClerkId(client, clerkUserId) {
   const { rows } = await client.query(
@@ -39,38 +28,60 @@ async function getAppUserByClerkId(client, clerkUserId) {
   return rows[0] || null;
 }
 
+function getBearerToken(req) {
+  const authHeader =
+    req.headers["authorization"] || req.headers["Authorization"] || "";
+  if (typeof authHeader !== "string") return null;
+
+  const m = authHeader.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] || null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
+    return res
+      .status(405)
+      .json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
   }
 
   // 1) Auth (Bearer JWT from Clerk session)
-  let clerkUserId = null;
-
-  const authHeader =
-    req.headers["authorization"] ||
-    req.headers["Authorization"] ||
-    "";
-
-  const m = typeof authHeader === "string" ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
-  const token = m?.[1];
-
+  const token = getBearerToken(req);
   if (!token) {
-    return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing Bearer token" } });
+    return res.status(401).json({
+      ok: false,
+      error: { code: "UNAUTHORIZED", message: "Missing Bearer token" },
+    });
   }
 
+  let clerkUserId = null;
   try {
-    // Verify Clerk JWT
-    const verified = await clerk.verifyToken(token);
+    const verified = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY,
+      // Optional but recommended (prevents tokens from other origins being accepted)
+      authorizedParties: [
+        "https://ok-val-portal.vercel.app",
+        "http://localhost:5173",
+      ],
+      // If you add CLERK_JWT_KEY in Vercel env vars, you can uncomment this for networkless verify:
+      // jwtKey: process.env.CLERK_JWT_KEY,
+    });
+
     clerkUserId = verified?.sub || null;
 
     if (!clerkUserId) {
-      return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Token missing sub" } });
+      return res.status(401).json({
+        ok: false,
+        error: { code: "UNAUTHORIZED", message: "Token missing sub" },
+      });
     }
   } catch (e) {
     return res.status(401).json({
       ok: false,
-      error: { code: "UNAUTHORIZED", message: "Invalid token", details: e?.message || String(e) },
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Invalid token",
+        details: e?.message || String(e),
+      },
     });
   }
 
@@ -79,7 +90,10 @@ export default async function handler(req, res) {
   if (!requested_organization_id) {
     return res.status(400).json({
       ok: false,
-      error: { code: "VALIDATION_ERROR", message: "requested_organization_id is required" },
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "requested_organization_id is required",
+      },
     });
   }
 
@@ -93,7 +107,10 @@ export default async function handler(req, res) {
       await client.query("ROLLBACK");
       return res.status(404).json({
         ok: false,
-        error: { code: "NOT_FOUND", message: "app_user not found for this Clerk user" },
+        error: {
+          code: "NOT_FOUND",
+          message: "app_user not found for this Clerk user",
+        },
       });
     }
     if (!appUser.is_active) {
@@ -109,7 +126,10 @@ export default async function handler(req, res) {
       await client.query("ROLLBACK");
       return res.status(409).json({
         ok: false,
-        error: { code: "ALREADY_ASSIGNED", message: "User already belongs to an organization" },
+        error: {
+          code: "ALREADY_ASSIGNED",
+          message: "User already belongs to an organization",
+        },
       });
     }
 
@@ -128,14 +148,20 @@ export default async function handler(req, res) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         ok: false,
-        error: { code: "VALIDATION_ERROR", message: "Requested organization does not exist" },
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Requested organization does not exist",
+        },
       });
     }
     if (!org.is_active) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         ok: false,
-        error: { code: "VALIDATION_ERROR", message: "Requested organization is inactive" },
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Requested organization is inactive",
+        },
       });
     }
 
@@ -154,11 +180,14 @@ export default async function handler(req, res) {
       await client.query("ROLLBACK");
       return res.status(500).json({
         ok: false,
-        error: { code: "CONFIG_ERROR", message: "Default role 'user' not found/active" },
+        error: {
+          code: "CONFIG_ERROR",
+          message: "Default role 'user' not found/active",
+        },
       });
     }
 
-    // 7) Insert request (DB unique partial index prevents 2 pending)
+    // 7) Insert request
     const ins = await client.query(
       `
       INSERT INTO public.organization_membership_request (
@@ -181,16 +210,17 @@ export default async function handler(req, res) {
     );
 
     await client.query("COMMIT");
-
     return res.status(201).json({ ok: true, data: ins.rows[0] });
   } catch (e) {
     await client.query("ROLLBACK");
 
-    // Handle "one pending per user" nicely (unique partial index)
     if (e?.code === "23505") {
       return res.status(409).json({
         ok: false,
-        error: { code: "PENDING_EXISTS", message: "A pending request already exists for this user" },
+        error: {
+          code: "PENDING_EXISTS",
+          message: "A pending request already exists for this user",
+        },
       });
     }
 
