@@ -16,7 +16,6 @@ export async function withRls(clerkUserId, callback) {
   try {
     await client.query("BEGIN");
 
-    // This replaces SET LOCAL
     await client.query("SELECT set_config('app.clerk_user_id', $1, true)", [
       clerkUserId,
     ]);
@@ -31,6 +30,10 @@ export async function withRls(clerkUserId, callback) {
   } finally {
     client.release();
   }
+}
+
+function normRoleCode(code) {
+  return String(code || "").trim().toUpperCase();
 }
 
 /**
@@ -58,7 +61,7 @@ export async function getAppUserByClerkId(client, clerkUserId) {
 }
 
 /**
- * Global role (system-scoped). Used ONLY for SYSTEM_ADMIN.
+ * Global role (system-scoped). Used for SYSTEM_ADMIN.
  * Returns role_code string or null.
  */
 export async function getGlobalRoleCode(client, userId) {
@@ -97,7 +100,7 @@ export async function getMembershipRoleCode(client, userId, organizationId) {
 
 export async function isSystemAdmin(client, userId) {
   const code = await getGlobalRoleCode(client, userId);
-  return code === "SYSTEM_ADMIN";
+  return normRoleCode(code) === "SYSTEM_ADMIN";
 }
 
 /**
@@ -110,5 +113,9 @@ export async function canAdminOrg(client, userId, organizationId) {
   if (await isSystemAdmin(client, userId)) return true;
 
   const roleCode = await getMembershipRoleCode(client, userId, organizationId);
-  return roleCode === "ASSESSOR" || roleCode === "DIRECTOR";
+  const c = normRoleCode(roleCode);
+  return c === "ASSESSOR" || c === "DIRECTOR";
 }
+
+// Exported so other endpoints can normalize codes consistently if needed
+export { normRoleCode };
