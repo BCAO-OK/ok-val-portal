@@ -44,20 +44,34 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
   }
 
-  // 1) Auth
+  // 1) Auth (Bearer JWT from Clerk session)
   let clerkUserId = null;
+
+  const authHeader =
+    req.headers["authorization"] ||
+    req.headers["Authorization"] ||
+    "";
+
+  const m = typeof authHeader === "string" ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
+  const token = m?.[1];
+
+  if (!token) {
+    return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing Bearer token" } });
+  }
+
   try {
-    const authResult = await clerk.authenticateRequest(toWebRequest(req));
-    if (!authResult?.isAuthenticated) {
-      return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED" } });
-    }
-    // Clerk backend SDK puts the user id on authResult.sessionClaims.sub
-    clerkUserId = authResult?.sessionClaims?.sub || null;
+    // Verify Clerk JWT
+    const verified = await clerk.verifyToken(token);
+    clerkUserId = verified?.sub || null;
+
     if (!clerkUserId) {
-      return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED" } });
+      return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Token missing sub" } });
     }
   } catch (e) {
-    return res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED" } });
+    return res.status(401).json({
+      ok: false,
+      error: { code: "UNAUTHORIZED", message: "Invalid token", details: e?.message || String(e) },
+    });
   }
 
   // 2) Input
