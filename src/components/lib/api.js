@@ -1,21 +1,12 @@
-export function getRoleCodes(me) {
-  const roles = Array.isArray(me?.roles) ? me.roles : [];
-  return roles
-    .map((r) => String(r?.role_code || "").toLowerCase())
-    .filter(Boolean);
-}
+export async function apiFetch(getToken, path, init = {}) {
+  const token = await getToken();
+  const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
 
-export function isAdmin(me) {
-  const codes = getRoleCodes(me);
-  return codes.includes("system_admin") || codes.includes("admin");
-}
+  const res = await fetch(path, { ...init, headers });
+  const json = await res.json().catch(() => ({}));
 
-export function canEditQuestions(me) {
-  const codes = getRoleCodes(me);
-  return (
-    codes.includes("system_admin") ||
-    codes.includes("admin") ||
-    codes.includes("db_admin") ||
-    codes.includes("db_editor")
-  );
+  if (!res.ok || json?.ok === false) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  return json;
 }
