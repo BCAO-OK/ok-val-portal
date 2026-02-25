@@ -6,8 +6,10 @@ import SidebarNav from "./components/layout/SidebarNav";
 
 import Dashboard from "./pages/Dashboard";
 import Questions from "./pages/Questions";
+import Quizzes from "./pages/Quizzes";
 import Placeholder from "./pages/Placeholder";
 import Admin from "./pages/Admin";
+
 
 import { apiFetch } from "./lib/api";
 import { isAdmin } from "./lib/authz";
@@ -118,8 +120,7 @@ function AppShell() {
     if (active === "dashboard") return Dashboard;
     if (active === "questions") return Questions;
     if (active === "admin") return Admin;
-    if (active === "quizzes")
-      return () => <Placeholder title="Quizzes" description="Start a quiz session and track proficiency by domain." />;
+    if (active === "quizzes") return Quizzes;
     if (active === "reports")
       return () => <Placeholder title="Reports" description="Proficiency breakdown by domain and role-based reporting views." />;
     return Dashboard;
