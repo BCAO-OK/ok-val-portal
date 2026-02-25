@@ -164,7 +164,6 @@ function Icon({ name }) {
     );
   }
 
-
   if (name === "plus") {
     return (
       <svg {...common}>
@@ -218,6 +217,169 @@ function Icon({ name }) {
   );
 }
 
+function Pill({ children, tone = "neutral" }) {
+  const styles =
+    {
+      neutral: { border: BORDER, bg: SURFACE_2, color: "rgba(255,255,255,0.86)" },
+      ok: { border: "rgba(0,255,170,0.24)", bg: "rgba(0,255,170,0.10)", color: "rgba(220,255,245,0.95)" },
+      warn: { border: "rgba(255,199,0,0.24)", bg: "rgba(255,199,0,0.10)", color: "rgba(255,240,200,0.95)" },
+      bad: { border: "rgba(255,80,80,0.24)", bg: "rgba(255,80,80,0.10)", color: "rgba(255,220,220,0.95)" },
+    }[tone] || { border: BORDER, bg: SURFACE_2, color: "rgba(255,255,255,0.86)" };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 800,
+        border: `1px solid ${styles.border}`,
+        background: styles.bg,
+        color: styles.color,
+        letterSpacing: 0.2,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Card({ title, subtitle, children, right }) {
+  return (
+    <div
+      style={{
+        border: `1px solid ${BORDER}`,
+        background: SURFACE,
+        borderRadius: 18,
+        padding: 16,
+        boxShadow: "0 10px 30px rgba(0,0,0,0.30)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 0.3 }}>{title}</div>
+          {subtitle ? (
+            <div style={{ marginTop: 6, fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.4 }}>{subtitle}</div>
+          ) : null}
+        </div>
+        {right ? <div>{right}</div> : null}
+      </div>
+      {children ? <div style={{ marginTop: 14 }}>{children}</div> : null}
+    </div>
+  );
+}
+
+function PrimaryButton({ children, onClick, disabled, icon }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        padding: "10px 12px",
+        borderRadius: 12,
+        border: `1px solid rgba(0,255,170,0.25)`,
+        background: disabled ? "rgba(255,255,255,0.06)" : "rgba(0,255,170,0.10)",
+        color: "rgba(255,255,255,0.92)",
+        fontWeight: 900,
+        cursor: disabled ? "not-allowed" : "pointer",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+      }}
+    >
+      {icon ? <span style={{ display: "inline-flex" }}>{icon}</span> : null}
+      {children}
+    </button>
+  );
+}
+
+function GhostButton({ children, onClick, disabled, icon, ariaLabel }) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        padding: "10px 12px",
+        borderRadius: 12,
+        border: `1px solid ${BORDER}`,
+        background: "rgba(255,255,255,0.03)",
+        color: "rgba(255,255,255,0.86)",
+        fontWeight: 850,
+        cursor: disabled ? "not-allowed" : "pointer",
+      }}
+    >
+      {icon ? <span style={{ display: "inline-flex" }}>{icon}</span> : null}
+      {children}
+    </button>
+  );
+}
+
+function SidebarNav({ items, activeKey, onSelect, footer }) {
+  return (
+    <div style={{ display: "grid", gridTemplateRows: "auto 1fr auto", height: "100%" }}>
+      <div style={{ padding: 16, borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 46, height: 46, display: "grid", placeItems: "center" }}>
+            <OkValLogo size={44} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <BrandWordmark size={20} />
+            <div style={{ marginTop: 6, fontSize: 12, color: "rgba(255,255,255,0.60)" }}>
+              Oklahoma Valuation Portal
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: 10, overflowY: "auto" }}>
+        {items.map((it) => {
+          const active = it.key === activeKey;
+          return (
+            <button
+              key={it.key}
+              type="button"
+              onClick={() => onSelect(it.key)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 12px",
+                borderRadius: 14,
+                border: active ? "1px solid rgba(96,165,250,0.35)" : "1px solid transparent",
+                background: active ? "rgba(96,165,250,0.12)" : "transparent",
+                color: active ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.84)",
+                cursor: "pointer",
+                textAlign: "left",
+                fontWeight: active ? 950 : 850,
+                letterSpacing: 0.2,
+                marginBottom: 6,
+              }}
+            >
+              <span style={{ display: "inline-flex", opacity: active ? 1 : 0.86 }}>{it.icon}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>{it.label}</span>
+              <span style={{ opacity: 0.5 }}>›</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ padding: 12, borderTop: "1px solid rgba(255,255,255,0.10)" }}>{footer}</div>
+    </div>
+  );
+}
 
 function Modal({ title, children, onClose, width = 860 }) {
   return (
@@ -390,12 +552,11 @@ function Dropdown({ label, value, options, onChange, hint, placeholder = "Select
         onClick={() => setOpen((v) => !v)}
         style={{
           width: "100%",
-          textAlign: "left",
           padding: "10px 12px",
           borderRadius: 12,
           border: `1px solid ${BORDER}`,
           background: "rgba(255,255,255,0.04)",
-          color: "rgba(255,255,255,0.90)",
+          color: "rgba(255,255,255,0.92)",
           outline: "none",
           fontSize: 13,
           display: "flex",
@@ -403,21 +564,9 @@ function Dropdown({ label, value, options, onChange, hint, placeholder = "Select
           justifyContent: "space-between",
           gap: 10,
           cursor: "pointer",
-          // Allow long selected labels to truncate instead of spilling into neighboring fields
-          minWidth: 0,
         }}
-        aria-haspopup="listbox"
-        aria-expanded={open}
       >
-        <span
-          style={{
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            minWidth: 0,
-            flex: 1,
-          }}
-        >
+        <span style={{ opacity: selected ? 0.95 : 0.6, flex: 1 }}>
           {selected ? selected.label : placeholder}
         </span>
         <span style={{ opacity: 0.6 }}>▾</span>
@@ -461,7 +610,9 @@ function Dropdown({ label, value, options, onChange, hint, placeholder = "Select
                   borderBottom: "1px solid rgba(255,255,255,0.06)",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isSelected ? "rgba(96,165,250,0.22)" : "rgba(255,255,255,0.06)";
+                  e.currentTarget.style.background = isSelected
+                    ? "rgba(96,165,250,0.22)"
+                    : "rgba(255,255,255,0.06)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = isSelected ? "rgba(96,165,250,0.18)" : "transparent";
@@ -515,10 +666,18 @@ function Toggle({ label, checked, onChange, hint }) {
   );
 }
 
+/** ✅ FIX: allow system_admin/admin to edit (you were view-only) */
 function canEditQuestions(me) {
   const roles = Array.isArray(me?.roles) ? me.roles : [];
   const roleCodes = roles.map((r) => String(r?.role_code || "").toLowerCase()).filter(Boolean);
-  return roleCodes.includes("db_admin") || roleCodes.includes("db_editor");
+
+  // Editors/admins can create/edit/delete questions.
+  return (
+    roleCodes.includes("system_admin") ||
+    roleCodes.includes("admin") ||
+    roleCodes.includes("db_admin") ||
+    roleCodes.includes("db_editor")
+  );
 }
 
 function normalizeQuestionId(q) {
@@ -589,7 +748,7 @@ function QuestionBankPage({ me, getToken }) {
       const json = await apiFetch(`/api/questions?${params.toString()}`);
       const list = json?.data ?? json;
 
-      const rows = Array.isArray(list) ? list : (Array.isArray(list?.items) ? list.items : []);
+      const rows = Array.isArray(list) ? list : Array.isArray(list?.items) ? list.items : [];
 
       const catMap = new Map(); // id -> name
       const domMap = new Map(); // id -> {name, category_id}
@@ -773,11 +932,12 @@ function QuestionBankPage({ me, getToken }) {
         citation_text: String(draft.citation_text).trim(),
         is_active: Boolean(draft.is_active),
         is_verified: Boolean(draft.is_verified),
+        correct_choice_label: correct,
         choices: [
-          { choice_label: "A", choice_text: String(draft.choice_a).trim(), is_correct: correct === "A" },
-          { choice_label: "B", choice_text: String(draft.choice_b).trim(), is_correct: correct === "B" },
-          { choice_label: "C", choice_text: String(draft.choice_c).trim(), is_correct: correct === "C" },
-          { choice_label: "D", choice_text: String(draft.choice_d).trim(), is_correct: correct === "D" },
+          { choice_label: "A", choice_text: String(draft.choice_a).trim() },
+          { choice_label: "B", choice_text: String(draft.choice_b).trim() },
+          { choice_label: "C", choice_text: String(draft.choice_c).trim() },
+          { choice_label: "D", choice_text: String(draft.choice_d).trim() },
         ],
       };
 
@@ -833,9 +993,7 @@ function QuestionBankPage({ me, getToken }) {
   }, [categoryOptions]);
 
   const domainEditorOptions = useMemo(() => {
-    const doms = draft.category_id
-      ? domainOptions.filter((d) => d.category_id === draft.category_id)
-      : domainOptions;
+    const doms = draft.category_id ? domainOptions.filter((d) => d.category_id === draft.category_id) : domainOptions;
 
     return [{ value: "", label: "Select…" }, ...doms.map((d) => ({ value: d.value, label: d.label }))];
   }, [domainOptions, draft.category_id]);
@@ -866,535 +1024,250 @@ function QuestionBankPage({ me, getToken }) {
         </div>
       </div>
 
-      <Card
-        title="Filters"
-        subtitle="Search by prompt. Filter by category/domain/difficulty. (Server-side filters.)"
-        right={
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Pill>
-              <Icon name="dot" /> {loading ? "loading" : "ready"}
-            </Pill>
-          </div>
-        }
-      >
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            <Input label="Search" value={search} onChange={setSearch} placeholder="Search prompt…" />
+      <Card title="Filters" subtitle="Search by prompt. Filter by category/domain/difficulty. (Server-side filters.)">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          <Input label="Search prompt" value={search} onChange={setSearch} placeholder="e.g., homestead exemption" />
+          <Dropdown label="Category" value={categoryId} onChange={setCategoryId} options={categoryFilterOptions} />
+          <Dropdown label="Domain" value={domainId} onChange={setDomainId} options={filteredDomainOptions} />
+          <Select
+            label="Difficulty"
+            value={difficulty}
+            onChange={setDifficulty}
+            options={[
+              { value: "", label: "All" },
+              { value: "1", label: "1" },
+              { value: "2", label: "2" },
+              { value: "3", label: "3" },
+            ]}
+          />
+        </div>
 
-            <Dropdown
-              label="Category"
-              value={categoryId}
-              onChange={(v) => {
-                setCategoryId(v);
-                // If category changes, clear domain if it no longer fits
-                setDomainId("");
-              }}
-              options={categoryFilterOptions}
-              placeholder="All categories"
-            />
-
-            <Dropdown
-              label="Domain"
-              value={domainId}
-              onChange={setDomainId}
-              options={filteredDomainOptions}
-              placeholder="All domains"
-            />
-
-            <Dropdown
-              label="Difficulty"
-              value={difficulty}
-              onChange={setDifficulty}
-              options={[
-                { value: "", label: "All" },
-                { value: "1", label: "1 (basic)" },
-                { value: "2", label: "2 (intermediate)" },
-                { value: "3", label: "3 (advanced)" },
-              ]}
-              placeholder="All difficulty"
-            />
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-              <Toggle label="Active only" checked={activeOnly} onChange={setActiveOnly} hint="hide inactive questions" />
-              <Toggle label="Unverified only" checked={unverifiedOnly} onChange={setUnverifiedOnly} hint="show questions not yet approved" />
-            </div>
-            <div style={{ fontSize: 12, color: TEXT_DIM_2 }}>
-              Showing <b style={{ color: "rgba(255,255,255,0.90)" }}>{showingFrom}</b>–<b style={{ color: "rgba(255,255,255,0.90)" }}>{showingTo}</b>
-            </div>
-          </div>
-
-          {err ? <div style={{ color: "rgba(255,220,220,0.95)", fontSize: 13, fontWeight: 900, lineHeight: 1.5 }}>{err}</div> : null}
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          <Toggle label="Active only" checked={activeOnly} onChange={setActiveOnly} hint="Hide inactive questions" />
+          <Toggle
+            label="Unverified only"
+            checked={unverifiedOnly}
+            onChange={setUnverifiedOnly}
+            hint="Show questions flagged as not verified"
+          />
         </div>
       </Card>
 
-      <Card title="Questions" subtitle="Edit updates the question + its 4 choices. Delete is a soft delete (sets is_active=false).">
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
-            <thead>
-              <tr style={{ textAlign: "left" }}>
-                {["Category", "Domain", "Diff", "Prompt", "Correct", "Verified", "Active", "Actions"].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      fontSize: 12,
-                      color: TEXT_DIM_2,
-                      fontWeight: 950,
-                      padding: "10px 10px",
-                      borderBottom: `1px solid ${BORDER}`,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 14, color: TEXT_DIM, fontSize: 13 }}>
-                    {loading ? "Loading…" : "No questions found for these filters."}
-                  </td>
-                </tr>
-              ) : (
-                items.map((q) => {
-                  const id = normalizeQuestionId(q);
-                  const activeFlag = q?.is_active ?? true;
-                  const verifiedFlag = q?.is_verified ?? false;
-                  return (
-                    <tr key={String(id ?? Math.random())}>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <div style={{ fontSize: 13, fontWeight: 900 }}>{q?.category_name || "—"}</div>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <div style={{ fontSize: 13, fontWeight: 900 }}>{q?.domain_name || "—"}</div>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <Pill>
-                          <Icon name="dot" /> {String(q?.difficulty ?? "—")}
-                        </Pill>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.88)", lineHeight: 1.35, maxWidth: 720 }}>
-                          {q?.prompt || "—"}
-                        </div>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <Pill tone="ok">
-                          <Icon name="check" /> {String(q?.correct_choice_label || "—")}
-                        </Pill>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <Pill tone={verifiedFlag ? "ok" : "warn"}>
-                          <Icon name={verifiedFlag ? "check" : "dot"} /> {verifiedFlag ? "yes" : "no"}
-                        </Pill>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <Pill tone={activeFlag ? "ok" : "warn"}>
-                          <Icon name="dot" /> {activeFlag ? "yes" : "no"}
-                        </Pill>
-                      </td>
-                      <td style={{ padding: "10px 10px", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {err ? (
+        <Card title="Error" subtitle="The last request failed.">
+          <div style={{ color: "rgba(255,220,220,0.95)", fontSize: 13, fontWeight: 900, lineHeight: 1.5 }}>{err}</div>
+        </Card>
+      ) : null}
+
+      <Card
+        title="Questions"
+        subtitle={
+          loading
+            ? "Loading…"
+            : `${items.length} loaded • showing ${showingFrom}–${showingTo} (page ${page}) • total shown: ${total}`
+        }
+        right={
+          <div style={{ display: "flex", gap: 8 }}>
+            <GhostButton
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1 || loading}
+              ariaLabel="Previous page"
+            >
+              Prev
+            </GhostButton>
+            <GhostButton onClick={() => setPage((p) => p + 1)} disabled={loading || items.length < pageSize} ariaLabel="Next page">
+              Next
+            </GhostButton>
+          </div>
+        }
+      >
+        <div style={{ display: "grid", gap: 10 }}>
+          {items.length ? (
+            items.map((q) => {
+              const id = normalizeQuestionId(q);
+              const title = q?.prompt ? String(q.prompt).slice(0, 140) : "(no prompt)";
+              const badge = q?.is_verified ? <Pill tone="ok">Verified</Pill> : <Pill tone="warn">Unverified</Pill>;
+
+              return (
+                <div
+                  key={String(id || title)}
+                  style={{
+                    border: `1px solid rgba(255,255,255,0.10)`,
+                    borderRadius: 16,
+                    padding: 12,
+                    background: "rgba(255,255,255,0.03)",
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 950, lineHeight: 1.35 }}>{title}</div>
+                      <div style={{ marginTop: 6, color: TEXT_DIM_2, fontSize: 12, lineHeight: 1.4 }}>
+                        {q?.category_name ? `${q.category_name} • ` : ""}
+                        {q?.domain_name ? `${q.domain_name} • ` : ""}
+                        Difficulty {q?.difficulty ?? "—"}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      {badge}
+                      {q?.is_active ? <Pill tone="ok">Active</Pill> : <Pill tone="bad">Inactive</Pill>}
+                      {canEdit ? (
+                        <>
                           <GhostButton onClick={() => openEdit(q)} icon={<Icon name="edit" />} ariaLabel="Edit question">
                             Edit
                           </GhostButton>
-                          <GhostButton onClick={() => setConfirmDelete(q)} icon={<Icon name="trash" />} ariaLabel="Delete question">
+                          <GhostButton
+                            onClick={() => setConfirmDelete(q)}
+                            icon={<Icon name="trash" />}
+                            ariaLabel="Delete question"
+                          >
                             Delete
                           </GhostButton>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
 
-        <div style={{ marginTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: `1px solid ${BORDER}`,
-                background: page <= 1 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.04)",
-                color: "rgba(255,255,255,0.90)",
-                fontWeight: 900,
-                cursor: page <= 1 ? "not-allowed" : "pointer",
-              }}
-            >
-              Prev
-            </button>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: TEXT_DIM, fontWeight: 850 }}>Explanation</div>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.86)", lineHeight: 1.45 }}>
+                      {q?.explanation ? String(q.explanation) : "—"}
+                    </div>
+                  </div>
 
-            <Pill>
-              <Icon name="dot" /> Page {page}
-            </Pill>
-
-            <button
-              type="button"
-              onClick={() => setPage((p) => p + 1)}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: `1px solid ${BORDER}`,
-                background: "rgba(255,255,255,0.04)",
-                color: "rgba(255,255,255,0.90)",
-                fontWeight: 900,
-                cursor: "pointer",
-              }}
-            >
-              Next
-            </button>
-          </div>
-
-          <div style={{ fontSize: 12, color: TEXT_DIM_2 }}>
-            Tip: Domain options filter down when you pick a Category.
-          </div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: TEXT_DIM, fontWeight: 850 }}>Citation</div>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.86)", lineHeight: 1.45 }}>
+                      {q?.citation_text ? String(q.citation_text) : "—"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div style={{ color: TEXT_DIM, fontSize: 13 }}>No questions found.</div>
+          )}
         </div>
       </Card>
 
       {editorOpen ? (
-        <Modal title={editorMode === "create" ? "Create question" : "Edit question"} onClose={() => setEditorOpen(false)} width={980}>
-          {!canEdit ? (
-            <div style={{ color: "rgba(255,220,220,0.95)", fontSize: 13, fontWeight: 900, lineHeight: 1.5 }}>
-              You do not have permission to create/edit questions.
+        <Modal
+          title={editorMode === "create" ? "New Question" : "Edit Question"}
+          onClose={() => setEditorOpen(false)}
+          width={980}
+        >
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+              <Dropdown
+                label="Category"
+                value={draft.category_id}
+                onChange={(v) => setDraft((d) => ({ ...d, category_id: v }))}
+                options={categoryEditorOptions}
+              />
+              <Dropdown
+                label="Domain"
+                value={draft.domain_id}
+                onChange={(v) => setDraft((d) => ({ ...d, domain_id: v }))}
+                options={domainEditorOptions}
+              />
+              <Select
+                label="Difficulty"
+                value={draft.difficulty}
+                onChange={(v) => setDraft((d) => ({ ...d, difficulty: v }))}
+                options={[
+                  { value: "1", label: "1" },
+                  { value: "2", label: "2" },
+                  { value: "3", label: "3" },
+                ]}
+              />
+              <Select
+                label="Correct choice"
+                value={draft.correct_choice_label}
+                onChange={(v) => setDraft((d) => ({ ...d, correct_choice_label: v }))}
+                options={[
+                  { value: "A", label: "A" },
+                  { value: "B", label: "B" },
+                  { value: "C", label: "C" },
+                  { value: "D", label: "D" },
+                ]}
+              />
             </div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-                <Dropdown
-                  label="Category"
-                  value={draft.category_id}
-                  onChange={(v) => {
-                    setDraft((d) => ({ ...d, category_id: v, domain_id: "" }));
-                  }}
-                  options={categoryEditorOptions}
-                  placeholder="Select category…"
-                />
-                <Dropdown
-                  label="Domain"
-                  value={draft.domain_id}
-                  onChange={(v) => setDraft((d) => ({ ...d, domain_id: v }))}
-                  options={domainEditorOptions}
-                  placeholder="Select domain…"
-                />
-                <Dropdown
-                  label="Difficulty"
-                  value={draft.difficulty}
-                  onChange={(v) => setDraft((d) => ({ ...d, difficulty: v }))}
-                  options={[
-                    { value: "1", label: "1 (basic)" },
-                    { value: "2", label: "2 (intermediate)" },
-                    { value: "3", label: "3 (advanced)" },
-                  ]}
-                />
-                <Dropdown
-                  label="Correct choice"
-                  value={draft.correct_choice_label}
-                  onChange={(v) => setDraft((d) => ({ ...d, correct_choice_label: v }))}
-                  options={[
-                    { value: "A", label: "A" },
-                    { value: "B", label: "B" },
-                    { value: "C", label: "C" },
-                    { value: "D", label: "D" },
-                  ]}
-                />
-              </div>
 
+            <Input
+              label="Prompt"
+              value={draft.prompt}
+              onChange={(v) => setDraft((d) => ({ ...d, prompt: v }))}
+              placeholder="Question prompt…"
+            />
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+              <Input label="Choice A" value={draft.choice_a} onChange={(v) => setDraft((d) => ({ ...d, choice_a: v }))} />
+              <Input label="Choice B" value={draft.choice_b} onChange={(v) => setDraft((d) => ({ ...d, choice_b: v }))} />
+              <Input label="Choice C" value={draft.choice_c} onChange={(v) => setDraft((d) => ({ ...d, choice_c: v }))} />
+              <Input label="Choice D" value={draft.choice_d} onChange={(v) => setDraft((d) => ({ ...d, choice_d: v }))} />
+            </div>
+
+            <TextArea
+              label="Explanation"
+              value={draft.explanation}
+              onChange={(v) => setDraft((d) => ({ ...d, explanation: v }))}
+              placeholder="Explain why the correct answer is correct…"
+              rows={4}
+            />
+
+            <TextArea
+              label="Citation"
+              value={draft.citation_text}
+              onChange={(v) => setDraft((d) => ({ ...d, citation_text: v }))}
+              placeholder="Cite Oklahoma Constitution / Title 68 / OTC 710 / AG / case law…"
+              rows={3}
+            />
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
               <Toggle
                 label="Active"
                 checked={Boolean(draft.is_active)}
                 onChange={(v) => setDraft((d) => ({ ...d, is_active: v }))}
-                hint="inactive questions can be hidden from quizzes"
+                hint="Inactive questions are hidden unless Active only is off."
               />
-
               <Toggle
                 label="Verified"
                 checked={Boolean(draft.is_verified)}
                 onChange={(v) => setDraft((d) => ({ ...d, is_verified: v }))}
-                hint="mark this question as reviewed/approved"
+                hint="Used for review workflows; unverified questions can be filtered."
               />
-
-              <TextArea
-                label="Prompt"
-                value={draft.prompt}
-                onChange={(v) => setDraft((d) => ({ ...d, prompt: v }))}
-                placeholder="Write the question prompt…"
-                rows={4}
-              />
-
-              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-                <TextArea label="Choice A" value={draft.choice_a} onChange={(v) => setDraft((d) => ({ ...d, choice_a: v }))} rows={3} />
-                <TextArea label="Choice B" value={draft.choice_b} onChange={(v) => setDraft((d) => ({ ...d, choice_b: v }))} rows={3} />
-                <TextArea label="Choice C" value={draft.choice_c} onChange={(v) => setDraft((d) => ({ ...d, choice_c: v }))} rows={3} />
-                <TextArea label="Choice D" value={draft.choice_d} onChange={(v) => setDraft((d) => ({ ...d, choice_d: v }))} rows={3} />
-              </div>
-
-              <TextArea
-                label="Explanation"
-                value={draft.explanation}
-                onChange={(v) => setDraft((d) => ({ ...d, explanation: v }))}
-                rows={4}
-              />
-
-              <TextArea
-                label="Citation"
-                value={draft.citation_text}
-                onChange={(v) => setDraft((d) => ({ ...d, citation_text: v }))}
-                placeholder="Example: 68 O.S. § XXXX; OTC 710:XX-XX-XX"
-                rows={3}
-              />
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
-                <GhostButton onClick={() => setEditorOpen(false)} icon={<Icon name="x" />}>
-                  Cancel
-                </GhostButton>
-                <PrimaryButton onClick={saveDraft} icon={<Icon name="check" />}>
-                  Save
-                </PrimaryButton>
-              </div>
-            </div>
-          )}
-        </Modal>
-      ) : null}
-
-      {confirmDelete ? (
-        <Modal title="Soft delete question?" onClose={() => setConfirmDelete(null)} width={520}>
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>
-              This will mark the question as inactive (<code>is_active = false</code>). It will no longer appear in “Active only” lists.
-            </div>
-
-            <div style={{ padding: 12, border: `1px solid ${BORDER}`, borderRadius: 14, background: SURFACE }}>
-              <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Prompt</div>
-              <div style={{ marginTop: 6, fontSize: 13, color: "rgba(255,255,255,0.88)", lineHeight: 1.35 }}>
-                {confirmDelete?.prompt || "—"}
-              </div>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
-              <GhostButton onClick={() => setConfirmDelete(null)} icon={<Icon name="x" />}>
+              <GhostButton onClick={() => setEditorOpen(false)} ariaLabel="Cancel">
                 Cancel
               </GhostButton>
-              <PrimaryButton onClick={() => doDelete(confirmDelete)} icon={<Icon name="trash" />}>
-                Soft delete
+              <PrimaryButton onClick={saveDraft} disabled={loading}>
+                {loading ? "Saving…" : "Save"}
               </PrimaryButton>
             </div>
           </div>
         </Modal>
       ) : null}
-    </div>
-  );
-}
-function Pill({ children, tone = "default" }) {
-  const styles =
-    {
-      default: {
-        border: BORDER,
-        bg: SURFACE_2,
-        color: "rgba(255,255,255,0.86)",
-      },
-      ok: {
-        border: "rgba(0,255,170,0.22)",
-        bg: "rgba(0,255,170,0.10)",
-        color: "rgba(220,255,245,0.95)",
-      },
-      warn: {
-        border: "rgba(255,199,0,0.24)",
-        bg: "rgba(255,199,0,0.10)",
-        color: "rgba(255,240,200,0.95)",
-      },
-      bad: {
-        border: "rgba(255,80,80,0.24)",
-        bg: "rgba(255,80,80,0.10)",
-        color: "rgba(255,220,220,0.95)",
-      },
-    }[tone] || { border: BORDER, bg: SURFACE_2, color: "rgba(255,255,255,0.86)" };
 
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 800,
-        border: `1px solid ${styles.border}`,
-        background: styles.bg,
-        color: styles.color,
-        letterSpacing: 0.2,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Card({ title, subtitle, children, right }) {
-  return (
-    <div
-      style={{
-        border: `1px solid ${BORDER}`,
-        background: SURFACE,
-        borderRadius: 18,
-        padding: 16,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.30)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 0.3 }}>{title}</div>
-          {subtitle ? (
-            <div style={{ marginTop: 6, fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.4 }}>{subtitle}</div>
-          ) : null}
-        </div>
-        {right ? <div>{right}</div> : null}
-      </div>
-      {children ? <div style={{ marginTop: 14 }}>{children}</div> : null}
-    </div>
-  );
-}
-
-function PrimaryButton({ children, onClick, disabled, icon }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        padding: "10px 12px",
-        borderRadius: 12,
-        border: `1px solid rgba(0,255,170,0.25)`,
-        background: disabled ? "rgba(255,255,255,0.06)" : "rgba(0,255,170,0.10)",
-        color: "rgba(255,255,255,0.92)",
-        fontWeight: 900,
-        cursor: disabled ? "not-allowed" : "pointer",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-      }}
-    >
-      {icon ? <span style={{ opacity: 0.95, display: "inline-flex" }}>{icon}</span> : null}
-      {children}
-    </button>
-  );
-}
-
-function GhostButton({ children, onClick, icon, ariaLabel }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={ariaLabel}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        padding: "10px 12px",
-        borderRadius: 12,
-        border: `1px solid ${BORDER}`,
-        background: "rgba(255,255,255,0.04)",
-        color: "rgba(255,255,255,0.90)",
-        fontWeight: 900,
-        cursor: "pointer",
-      }}
-    >
-      {icon ? <span style={{ opacity: 0.95, display: "inline-flex" }}>{icon}</span> : null}
-      {children}
-    </button>
-  );
-}
-
-function SidebarNav({ items, activeKey, onSelect, footer }) {
-  return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div
-            style={{
-              width: 68,
-              height: 68,
-              borderRadius: 18,
-              background: "rgba(255,255,255,0.10)",
-              border: "1px solid rgba(255,255,255,0.14)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flex: "0 0 auto",
-            }}
-          >
-            <OkValLogo size={52} />
-          </div>
-
-          <div style={{ minWidth: 0 }}>
-            <BrandWordmark size={18} />
-            <div style={{ marginTop: 6, fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
-              Training + compliance
+      {confirmDelete ? (
+        <Modal title="Delete Question" onClose={() => setConfirmDelete(null)} width={720}>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ color: TEXT_DIM, fontSize: 13, lineHeight: 1.5 }}>
+              This will permanently delete the question. This should be rare—prefer marking inactive if you want to preserve auditability.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <GhostButton onClick={() => setConfirmDelete(null)} ariaLabel="Cancel delete">
+                Cancel
+              </GhostButton>
+              <PrimaryButton onClick={() => doDelete(confirmDelete)} disabled={loading} icon={<Icon name="trash" />}>
+                {loading ? "Deleting…" : "Delete"}
+              </PrimaryButton>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div style={{ padding: "0 10px 10px" }}>
-        <div style={{ height: 1, background: "rgba(255,255,255,0.10)" }} />
-      </div>
-
-      <div style={{ padding: 10, overflowY: "auto" }}>
-        {items.map((it) => {
-          const active = it.key === activeKey;
-          return (
-            <button
-              key={it.key}
-              type="button"
-              onClick={() => onSelect(it.key)}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 10px",
-                borderRadius: 12,
-                border: "1px solid transparent",
-                background: active ? "rgba(255,255,255,0.10)" : "transparent",
-                color: "rgba(255,255,255,0.92)",
-                cursor: "pointer",
-                textAlign: "left",
-                fontWeight: 900,
-                letterSpacing: 0.2,
-                transition: "background 140ms ease, border 140ms ease",
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <span style={{ opacity: active ? 1 : 0.85, display: "inline-flex" }}>{it.icon}</span>
-              <span style={{ flex: 1 }}>{it.label}</span>
-              {it.badge ? <span style={{ opacity: 0.9 }}>{it.badge}</span> : null}
-            </button>
-          );
-        })}
-      </div>
-
-      {footer ? (
-        <div style={{ padding: 12 }}>
-          <div style={{ height: 1, background: "rgba(255,255,255,0.10)", marginBottom: 12 }} />
-          {footer}
-        </div>
+        </Modal>
       ) : null}
     </div>
   );
@@ -1405,73 +1278,59 @@ function DashboardHome({ me, status, error, onRefresh }) {
 
   const roles = Array.isArray(me?.roles) ? me.roles : [];
   const roleCodes = roles.map((r) => String(r?.role_code || "").toLowerCase()).filter(Boolean);
-  const tone = status === "ok" ? "ok" : status === "error" ? "bad" : "warn";
 
-  const gridTemplateColumns = isNarrow ? "1fr" : "repeat(12, 1fr)";
-  const leftSpan = isNarrow ? "1 / -1" : "span 7";
-  const rightSpan = isNarrow ? "1 / -1" : "span 5";
+  const leftSpan = isNarrow ? "1 / -1" : "span 2";
+  const rightSpan = isNarrow ? "1 / -1" : "span 1";
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 1000, letterSpacing: 0.2 }}>Dashboard</div>
-          <div style={{ marginTop: 6, fontSize: 13, color: TEXT_DIM }}>
-            You’re signed in. Next step: wire pages to real endpoints and role gates.
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 1000, letterSpacing: 0.2 }}>Overview</div>
+          <div style={{ marginTop: 6, fontSize: 13, color: TEXT_DIM, lineHeight: 1.45 }}>
+            Authenticated status + role snapshot. This page helps diagnose env/token/role issues quickly.
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Pill tone={tone}>
-            <Icon name="dot" />
-            {status}
-          </Pill>
-          <GhostButton onClick={onRefresh} icon={<Icon name="refresh" />} ariaLabel="Refresh /api/me">
-            Refresh
-          </GhostButton>
-        </div>
+        <GhostButton onClick={onRefresh} icon={<Icon name="refresh" />} ariaLabel="Refresh /api/me">
+          Refresh /api/me
+        </GhostButton>
       </div>
 
-      <div style={{ display: "grid", gap: 14, gridTemplateColumns }}>
+      <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr" : "2fr 1fr", gap: 14 }}>
         <div style={{ gridColumn: leftSpan, minWidth: 0 }}>
-          <Card
-            title="Your profile"
-            subtitle="Pulled from /api/me (Clerk token → Vercel function → Neon)."
-            right={
-              me?.display_name ? (
-                <Pill tone="ok">
-                  <Icon name="check" /> Connected
-                </Pill>
-              ) : (
-                <Pill tone="warn">
-                  <Icon name="dot" /> Pending
-                </Pill>
-              )
-            }
-          >
+          <Card title="Me" subtitle="Data returned from /api/me">
             <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: isNarrow ? "1fr" : "140px 1fr" }}>
-                <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Display name</div>
-                <div style={{ fontSize: 13, fontWeight: 900 }}>{me?.display_name || "—"}</div>
-
-                <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Email</div>
-                <div style={{ fontSize: 13, fontWeight: 900, overflowWrap: "anywhere" }}>{me?.email || "—"}</div>
-
-                <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>User ID</div>
-                <div style={{ fontSize: 13, fontWeight: 900, overflowWrap: "anywhere" }}>{me?.user_id || "—"}</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Pill tone={status === "ok" ? "ok" : status === "error" ? "bad" : "warn"}>
+                  <Icon name="dot" /> {status}
+                </Pill>
+                {me?.email ? (
+                  <Pill>
+                    <Icon name="dot" /> {me.email}
+                  </Pill>
+                ) : null}
+                {me?.display_name ? (
+                  <Pill>
+                    <Icon name="dot" /> {me.display_name}
+                  </Pill>
+                ) : null}
               </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {roleCodes.length ? (
-                  roleCodes.map((rc) => (
-                    <Pill key={rc}>
-                      <Icon name="dot" /> {rc}
+              <div style={{ display: "grid", gap: 6 }}>
+                <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Roles</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {roleCodes.length ? (
+                    roleCodes.map((rc) => (
+                      <Pill key={rc}>
+                        <Icon name="dot" /> {rc}
+                      </Pill>
+                    ))
+                  ) : (
+                    <Pill tone="warn">
+                      <Icon name="dot" /> no roles
                     </Pill>
-                  ))
-                ) : (
-                  <Pill tone="warn">
-                    <Icon name="dot" /> no roles
-                  </Pill>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </Card>
@@ -1617,24 +1476,13 @@ function AppShell() {
     if (active === "questions") return <QuestionBankPage me={me} getToken={getToken} />;
     if (active === "quizzes")
       return (
-        <PlaceholderPage
-          title="Quizzes"
-          description="Start a quiz session, get immediate feedback, and record domain proficiency."
-        />
+        <PlaceholderPage title="Quizzes" description="Start a quiz session, get immediate feedback, and record domain proficiency." />
       );
     if (active === "reports")
-      return (
-        <PlaceholderPage
-          title="Reports"
-          description="Proficiency breakdown by domain and role-based reporting views."
-        />
-      );
+      return <PlaceholderPage title="Reports" description="Proficiency breakdown by domain and role-based reporting views." />;
     if (active === "admin")
       return (
-        <PlaceholderPage
-          title="Admin"
-          description="User role management and audit-friendly configuration (admin only)."
-        />
+        <PlaceholderPage title="Admin" description="User role management and audit-friendly configuration (admin only)." />
       );
     return null;
   })();
@@ -1670,59 +1518,54 @@ function AppShell() {
                     <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontWeight: 900 }}>Signed in</div>
                     <UserButton />
                   </div>
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.62)" }}>{me?.display_name || me?.email || "—"}</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.62)" }}>
+                    {me?.display_name || me?.email || "—"}
+                  </div>
                 </div>
               }
             />
           </aside>
         ) : null}
 
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, display: "grid", gridTemplateRows: "auto 1fr" }}>
           <header
             style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "12px 14px",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.02)",
               position: "sticky",
               top: 0,
-              zIndex: 30,
-              backdropFilter: "blur(10px)",
-              background: "rgba(10,12,16,0.70)",
-              borderBottom: `1px solid ${BORDER}`,
+              zIndex: 50,
             }}
           >
-            <div
-              style={{
-                width: "100%",
-                maxWidth: CONTENT_MAX,
-                margin: "0 auto",
-                padding: `${PAGE_PAD_Y} ${PAGE_PAD_X}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {isMobile ? (
-                  <GhostButton
-                    onClick={() => setSidebarOpen(true)}
-                    icon={<Icon name="menu" />}
-                    ariaLabel="Open navigation"
-                  />
-                ) : null}
-
-                <div style={{ display: "grid" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+              {isMobile ? (
+                <GhostButton onClick={() => setSidebarOpen(true)} icon={<Icon name="menu" />} ariaLabel="Open menu">
+                  Menu
+                </GhostButton>
+              ) : null}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                <div style={{ width: 36, height: 36, display: "grid", placeItems: "center" }}>
+                  <OkValLogo size={34} />
+                </div>
+                <div style={{ minWidth: 0 }}>
                   <BrandWordmark size={18} />
-                  <div style={{ fontSize: 12, color: TEXT_DIM_2 }}>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.60)", marginTop: 4 }}>
                     {active === "dashboard" ? "Overview" : navItems.find((x) => x.key === active)?.label || ""}
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Pill tone={status === "ok" ? "ok" : status === "error" ? "bad" : "warn"}>
-                  <Icon name="dot" /> {status}
-                </Pill>
-                <UserButton />
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Pill tone={status === "ok" ? "ok" : status === "error" ? "bad" : "warn"}>
+                <Icon name="dot" /> {status}
+              </Pill>
+              <UserButton />
             </div>
           </header>
 
@@ -1773,7 +1616,9 @@ function AppShell() {
                       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontWeight: 900 }}>Signed in</div>
                       <UserButton />
                     </div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.62)" }}>{me?.display_name || me?.email || "—"}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.62)" }}>
+                      {me?.display_name || me?.email || "—"}
+                    </div>
                   </div>
                 }
               />
