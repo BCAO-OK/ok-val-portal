@@ -23,7 +23,9 @@ import {
   useIsMobile,
 } from "./components/ui/UI";
 
-const CONTENT_MAX = 1720;
+// Make layout more fluid/dynamic (use more of the window)
+// - remove hard content max
+// - keep comfortable padding via clamp
 const PAGE_PAD_X = "clamp(14px, 2.2vw, 40px)";
 const PAGE_PAD_Y = "clamp(12px, 1.6vw, 24px)";
 
@@ -116,10 +118,16 @@ function AppShell() {
     if (active === "dashboard") return Dashboard;
     if (active === "questions") return Questions;
     if (active === "admin") return Admin;
-    if (active === "quizzes") return () => <Placeholder title="Quizzes" description="Start a quiz session and track proficiency by domain." />;
-    if (active === "reports") return () => <Placeholder title="Reports" description="Proficiency breakdown by domain and role-based reporting views." />;
+    if (active === "quizzes")
+      return () => <Placeholder title="Quizzes" description="Start a quiz session and track proficiency by domain." />;
+    if (active === "reports")
+      return () => <Placeholder title="Reports" description="Proficiency breakdown by domain and role-based reporting views." />;
     return Dashboard;
   })();
+
+  const activeLabel = nav.find((x) => x.key === active)?.label || "Overview";
+  const orgName = me?.organization?.organization_name || null;
+  const roleName = me?.roles?.[0]?.role_name || null;
 
   return (
     <div style={{ minHeight: "100vh", background: BG, color: "white" }}>
@@ -131,7 +139,14 @@ function AppShell() {
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.20); }
       `}</style>
 
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "280px 1fr", minHeight: "100vh" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : "280px 1fr",
+          minHeight: "100vh",
+          width: "100%",
+        }}
+      >
         {!isMobile ? (
           <aside
             style={{
@@ -187,10 +202,40 @@ function AppShell() {
                 <div style={{ width: 36, height: 36, display: "grid", placeItems: "center" }}>
                   <OkValLogo size={34} />
                 </div>
+
                 <div style={{ minWidth: 0 }}>
                   <BrandWordmark size={18} />
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.60)", marginTop: 4 }}>
-                    {nav.find((x) => x.key === active)?.label || "Overview"}
+
+                  {/* Dynamic breadcrumb line: Page • Org • Role */}
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "rgba(255,255,255,0.60)",
+                      marginTop: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span>{activeLabel}</span>
+
+                    {orgName ? (
+                      <>
+                        <span style={{ opacity: 0.4 }}>•</span>
+                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {orgName}
+                        </span>
+                      </>
+                    ) : null}
+
+                    {roleName ? (
+                      <>
+                        <span style={{ opacity: 0.4 }}>•</span>
+                        <span style={{ whiteSpace: "nowrap" }}>{roleName}</span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -204,9 +249,17 @@ function AppShell() {
             </div>
           </header>
 
-          <main style={{ width: "100%", maxWidth: CONTENT_MAX, margin: "0 auto", padding: `${PAGE_PAD_Y} ${PAGE_PAD_X}` }}>
+          {/* Make main content use the full available width, not a fixed max */}
+          <main
+            style={{
+              width: "100%",
+              margin: "0 auto",
+              padding: `${PAGE_PAD_Y} ${PAGE_PAD_X}`,
+            }}
+          >
             <div
               style={{
+                width: "100%",
                 border: `1px solid ${BORDER}`,
                 background: "rgba(255,255,255,0.03)",
                 borderRadius: 22,
