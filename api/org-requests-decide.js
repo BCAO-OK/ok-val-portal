@@ -16,7 +16,6 @@ function getBearerToken(req) {
 }
 
 function parseJsonBody(req) {
-  // Vercel can provide req.body as object OR string depending on client/helper/headers.
   let body = req.body;
 
   if (typeof body === "string") {
@@ -66,19 +65,13 @@ export default async function handler(req, res) {
     });
   }
 
-  // Input (robust parsing + alias support)
+  // Input (robust parsing)
   const body = parseJsonBody(req);
 
-  const request_id =
-    body.request_id || body.requestId || body.requestID || null;
-
+  const request_id = body.request_id || body.requestId || body.requestID || null;
   const decision = body.decision || null;
-
-  const approved_role_id =
-    body.approved_role_id || body.approvedRoleId || null;
-
-  const decision_note =
-    body.decision_note || body.decisionNote || null;
+  const approved_role_id = body.approved_role_id || body.approvedRoleId || null;
+  const decision_note = body.decision_note || body.decisionNote || null;
 
   if (!request_id || !decision) {
     return res.status(400).json({
@@ -140,6 +133,8 @@ export default async function handler(req, res) {
           request_id,
           requester_user_id,
           requested_organization_id,
+          requested_role_id,
+          approved_role_id,
           status
         from public.organization_membership_request
         where request_id = $1
@@ -147,6 +142,7 @@ export default async function handler(req, res) {
         `,
         [request_id]
       );
+
       const reqRow = reqRes.rows[0];
       if (!reqRow) {
         return {
@@ -169,9 +165,7 @@ export default async function handler(req, res) {
 
       const targetOrgId = reqRow.requested_organization_id;
 
-      // Authorization:
-      // - SYSTEM_ADMIN can decide any org
-      // - ASSESSOR/DIRECTOR can decide only orgs they admin (membership-scoped)
+      // Authorization
       const actorIsSystemAdmin = await isSystemAdmin(client, actor.user_id);
       const actorCanAdminTargetOrg = actorIsSystemAdmin
         ? true
@@ -199,9 +193,10 @@ export default async function handler(req, res) {
             decided_at = now(),
             decided_by_user_id = $2,
             decision_note = $3,
+            approved_role_id = null,
             updated_by = $2
           where request_id = $1
-          returning request_id, status, decided_at, decided_by_user_id, decision_note
+          returning request_id, status, decided_at, decided_by_user_id, decision_note, approved_role_id
           `,
           [request_id, actor.user_id, decision_note || null]
         );
@@ -209,7 +204,7 @@ export default async function handler(req, res) {
         return { status: 200, body: { ok: true, data: upd.rows[0] } };
       }
 
-      // decision === "approve"
+      // APPROVE
 
       // Validate approved_role_id exists & active
       const roleCheck = await client.query(
@@ -238,7 +233,7 @@ export default async function handler(req, res) {
       // Lock requester
       const userRes = await client.query(
         `
-        select user_id, is_active, active_organization_id, organization_id
+        select user_id, is_active, active_organization_id
         from public.app_user
         where user_id = $1
         for update
@@ -285,16 +280,10 @@ export default async function handler(req, res) {
           updated_at = now(),
           updated_by = excluded.updated_by
         `,
-        [
-          reqRow.requester_user_id,
-          targetOrgId,
-          approved_role_id,
-          actor.user_id,
-        ]
+        [reqRow.requester_user_id, targetOrgId, approved_role_id, actor.user_id]
       );
 
-      // Set requester's active org context for UX
-      // NOTE: We no longer write legacy app_user.organization_id here.
+      // Set active org context
       await client.query(
         `
         update public.app_user
@@ -307,20 +296,28 @@ export default async function handler(req, res) {
         [reqRow.requester_user_id, targetOrgId, actor.user_id]
       );
 
-      // Mark request approved
+      // Mark request approved + stamp approved role id
       const updReq = await client.query(
         `
         update public.organization_membership_request
         set
           status = 'approved',
+          approved_role_id = $4,
           decided_at = now(),
           decided_by_user_id = $2,
           decision_note = $3,
           updated_by = $2
         where request_id = $1
-        returning request_id, status, decided_at, decided_by_user_id, decision_note
+        returning
+          request_id,
+          status,
+          requested_role_id,
+          approved_role_id,
+          decided_at,
+          decided_by_user_id,
+          decision_note
         `,
-        [request_id, actor.user_id, decision_note || null]
+        [request_id, actor.user_id, decision_note || null, approved_role_id]
       );
 
       return {
