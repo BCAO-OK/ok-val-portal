@@ -37,6 +37,22 @@ function getBearerToken(req) {
   return m?.[1] || null;
 }
 
+function parseJsonBody(req) {
+  // Vercel can give req.body as object OR string depending on client helper / headers.
+  let body = req.body;
+
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      body = {};
+    }
+  }
+
+  if (!body || typeof body !== "object") body = {};
+  return body;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res
@@ -57,12 +73,10 @@ export default async function handler(req, res) {
   try {
     const verified = await verifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY,
-      // Optional but recommended (prevents tokens from other origins being accepted)
       authorizedParties: [
         "https://ok-val-portal.vercel.app",
         "http://localhost:5173",
       ],
-      // If you add CLERK_JWT_KEY in Vercel env vars, you can uncomment this for networkless verify:
       // jwtKey: process.env.CLERK_JWT_KEY,
     });
 
@@ -85,8 +99,16 @@ export default async function handler(req, res) {
     });
   }
 
-  // 2) Input
-  const { requested_organization_id } = req.body || {};
+  // 2) Input (robust parsing + alias support)
+  const body = parseJsonBody(req);
+
+  const requested_organization_id =
+    body.requested_organization_id ||
+    body.requestedOrganizationId ||
+    body.organization_id ||
+    body.org_id ||
+    null;
+
   if (!requested_organization_id) {
     return res.status(400).json({
       ok: false,

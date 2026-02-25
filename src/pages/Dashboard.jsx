@@ -52,7 +52,7 @@ export default function Dashboard({ me, status, error, onRefresh, getToken }) {
       setReqError("");
       await apiFetch(getToken, "/api/org-requests", {
         method: "POST",
-        body: JSON.stringify({ requested_organization_id: selectedOrgId }),
+        body: ({ requested_organization_id: selectedOrgId }),
       });
       setReqStatus("ok");
       await onRefresh?.(); // refresh /api/me so pending_request appears
