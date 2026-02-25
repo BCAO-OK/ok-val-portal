@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     });
   }
 
-  // Input (robust parsing)
+  // Input
   const body = parseJsonBody(req);
 
   const request_id = body.request_id || body.requestId || body.requestID || null;
@@ -73,7 +73,8 @@ export default async function handler(req, res) {
   const approved_role_id = body.approved_role_id || body.approvedRoleId || null;
   const decision_note = body.decision_note || body.decisionNote || null;
 
-  const decision = typeof decisionRaw === "string" ? decisionRaw.toLowerCase() : null;
+  const decision =
+    typeof decisionRaw === "string" ? decisionRaw.trim().toLowerCase() : null;
 
   if (!request_id || !decision) {
     return res.status(400).json({
@@ -156,8 +157,8 @@ export default async function handler(req, res) {
         };
       }
 
-      // ✅ IMPORTANT: statuses are uppercase in your system
-      if (String(reqRow.status || "").toUpperCase() !== "PENDING") {
+      // ✅ statuses are constrained (lowercase in your data)
+      if (String(reqRow.status || "").toLowerCase() !== "pending") {
         return {
           status: 409,
           body: {
@@ -193,7 +194,7 @@ export default async function handler(req, res) {
           `
           update public.organization_membership_request
           set
-            status = 'REJECTED',
+            status = 'rejected',
             decided_at = now(),
             decided_by_user_id = $2,
             decision_note = $3,
@@ -259,7 +260,7 @@ export default async function handler(req, res) {
         };
       }
 
-      // Upsert membership (authoritative)
+      // Upsert membership
       await client.query(
         `
         insert into public.user_organization_membership (
@@ -301,12 +302,12 @@ export default async function handler(req, res) {
         [reqRow.requester_user_id, targetOrgId, actor.user_id]
       );
 
-      // Mark request approved + stamp approved role id
+      // Mark request approved
       const updReq = await client.query(
         `
         update public.organization_membership_request
         set
-          status = 'APPROVED',
+          status = 'approved',
           approved_role_id = $4,
           decided_at = now(),
           decided_by_user_id = $2,
