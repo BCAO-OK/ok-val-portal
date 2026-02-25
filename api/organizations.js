@@ -65,7 +65,8 @@ export default async function handler(req, res) {
         o.organization_id,
         o.organization_name,
         o.organization_type_id,
-        ot.organization_type_name
+        ot.type_code AS organization_type_code,
+        ot.type_name AS organization_type_name
       FROM public.organization o
       LEFT JOIN public.organization_type ot
         ON ot.organization_type_id = o.organization_type_id
