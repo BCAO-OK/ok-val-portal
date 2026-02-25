@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 export default function Quizzes() {
   const [domains, setDomains] = useState([]);
@@ -6,9 +6,8 @@ export default function Quizzes() {
   const [loadingDomains, setLoadingDomains] = useState(false);
   const [error, setError] = useState("");
 
-  // Step 2 will wire this to open the quiz modal.
   const startGeneralQuiz = () => {
-    alert("Step 2: Hook this to open the quiz modal (General Knowledge).");
+    alert("Step 3: Hook this to open the quiz modal (General Knowledge).");
   };
 
   const startDomainQuiz = () => {
@@ -16,12 +15,42 @@ export default function Quizzes() {
       alert("Select a domain first.");
       return;
     }
-    alert(`Step 2: Hook this to open the quiz modal (Domain: ${domain}).`);
+
+    alert(`Step 3: Hook this to open the quiz modal (Domain ID: ${domain}).`);
   };
 
   useEffect(() => {
-    // Step 3 will replace this with a real API call once we add /api/quiz/domains
-    // For now, we keep it empty so the page can exist and route cleanly.
+    let mounted = true;
+
+    async function loadDomains() {
+      setLoadingDomains(true);
+      setError("");
+
+      try {
+        const res = await fetch("/api/quiz/domains");
+        const data = await res.json();
+
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error?.message || "Failed to load domains.");
+        }
+
+        if (!mounted) return;
+
+        setDomains(data.domains || []);
+      } catch (err) {
+        if (!mounted) return;
+        setError(err.message || "Failed to load domains.");
+      } finally {
+        if (!mounted) return;
+        setLoadingDomains(false);
+      }
+    }
+
+    loadDomains();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return (
@@ -45,8 +74,16 @@ export default function Quizzes() {
             background: "rgba(255,255,255,0.02)",
           }}
         >
-          <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>General Knowledge</h2>
-          <p style={{ margin: "0 0 12px", opacity: 0.85, lineHeight: 1.4 }}>
+          <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>
+            General Knowledge
+          </h2>
+          <p
+            style={{
+              margin: "0 0 12px",
+              opacity: 0.85,
+              lineHeight: 1.4,
+            }}
+          >
             Full random 25-question quiz pulled from the question bank.
           </p>
 
@@ -77,17 +114,31 @@ export default function Quizzes() {
           }}
         >
           <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>By Domain</h2>
-          <p style={{ margin: "0 0 12px", opacity: 0.85, lineHeight: 1.4 }}>
+          <p
+            style={{
+              margin: "0 0 12px",
+              opacity: 0.85,
+              lineHeight: 1.4,
+            }}
+          >
             Select a domain and take a random 25-question quiz from that domain only.
           </p>
 
-          <label style={{ display: "block", fontSize: 13, marginBottom: 6, opacity: 0.9 }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: 13,
+              marginBottom: 6,
+              opacity: 0.9,
+            }}
+          >
             Domain
           </label>
 
           <select
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
+            disabled={loadingDomains}
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -97,18 +148,28 @@ export default function Quizzes() {
               color: "inherit",
               marginBottom: 12,
             }}
-            disabled={loadingDomains}
           >
-            <option value="">{loadingDomains ? "Loading domains..." : "Select a domain"}</option>
+            <option value="">
+              {loadingDomains ? "Loading domains..." : "Select a domain"}
+            </option>
+
             {domains.map((d) => (
-              <option key={d} value={d}>
-                {d}
+              <option key={d.domain_id} value={d.domain_id}>
+                {d.domain_label}
               </option>
             ))}
           </select>
 
           {error ? (
-            <div style={{ marginBottom: 10, color: "#ffb4b4", fontSize: 13 }}>{error}</div>
+            <div
+              style={{
+                marginBottom: 10,
+                color: "#ffb4b4",
+                fontSize: 13,
+              }}
+            >
+              {error}
+            </div>
           ) : null}
 
           <button
