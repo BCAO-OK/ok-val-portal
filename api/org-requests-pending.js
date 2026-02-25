@@ -65,6 +65,7 @@ async function getAppUser(req) {
 
   const u = userRows[0];
 
+  // global role (system-wide)
   const { rows: globalRoleRows } = await pool.query(
     `select r.role_code
      from public.user_role ur
@@ -78,6 +79,7 @@ async function getAppUser(req) {
   const global_role_code = globalRoleRows[0]?.role_code || "user";
   const is_system_admin = String(global_role_code).toLowerCase() === "system_admin";
 
+  // membership role (active org)
   let membership_role_code = null;
 
   if (u.active_organization_id) {
@@ -120,7 +122,6 @@ export default async function handler(req, res) {
     const au = await getAppUser(req);
     if (!au.ok) return json(res, au.status, { ok: false, error: au.error });
 
-    // ✅ THIS IS THE FIX:
     if (!au.user.can_admin_active_org) {
       return json(res, 403, {
         ok: false,
@@ -141,25 +142,26 @@ export default async function handler(req, res) {
       });
     }
 
-    // Default: org admins only see their active org's pending requests.
-    // SYSTEM_ADMIN can see all if you later want that; for now keep it org-scoped too unless you ask otherwise.
+    // org-scoped: approvers see pending requests for their active org
     const orgId = au.user.active_organization_id;
 
     const { rows } = await pool.query(
       `select
          r.request_id,
-         r.organization_id,
-         r.organization_name,
          r.requester_user_id,
          u.display_name as requester_display_name,
          u.email as requester_email,
+         r.requested_organization_id,
+         r.requested_role_id,
          r.status,
+         r.submitted_at,
          r.created_at
        from public.organization_membership_request r
        join public.app_user u on u.user_id = r.requester_user_id
-       where r.status = 'PENDING'
-         and r.organization_id = $1
-       order by r.created_at asc`,
+       where r.is_active = true
+         and r.status = 'PENDING'
+         and r.requested_organization_id = $1
+       order by coalesce(r.submitted_at, r.created_at) asc`,
       [orgId]
     );
 
