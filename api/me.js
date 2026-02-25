@@ -1,13 +1,6 @@
 // api/me.js
 import { createClerkClient } from "@clerk/backend";
-import pkg from "pg";
-
-const { Pool } = pkg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+import { withRlsContext } from "./_db.js";
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
@@ -19,17 +12,12 @@ function toWebRequest(req) {
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   const url = `${proto}://${host}${req.url}`;
 
-  // Copy headers into a real Headers object
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers || {})) {
     if (typeof v === "string") headers.set(k, v);
-    // ignore array headers for now (not needed here)
   }
 
-  return new Request(url, {
-    method: req.method,
-    headers,
-  });
+  return new Request(url, { method: req.method, headers });
 }
 
 export default async function handler(req, res) {
@@ -38,11 +26,9 @@ export default async function handler(req, res) {
       return res.status(405).json({ ok: false, error: "Method not allowed" });
     }
 
-    // Authenticate via Clerk
     const webReq = toWebRequest(req);
-
-    // NOTE: authorizedParties is recommended, but keep it simple for now.
     const authResult = await clerk.authenticateRequest(webReq);
+
     if (!authResult?.isAuthenticated) {
       return res.status(401).json({
         ok: false,
@@ -58,7 +44,6 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    // Pull app user + roles from Neon
     const sql = `
       select
         u.user_id,
@@ -83,10 +68,11 @@ export default async function handler(req, res) {
       limit 1;
     `;
 
-    const { rows } = await pool.query(sql, [clerkUserId]);
+    const { rows } = await withRlsContext(clerkUserId, (client) =>
+      client.query(sql, [clerkUserId])
+    );
 
     if (!rows.length) {
-      // Clerk user exists but not provisioned in app_user yet
       return res.status(403).json({
         ok: false,
         error: "User not provisioned",
