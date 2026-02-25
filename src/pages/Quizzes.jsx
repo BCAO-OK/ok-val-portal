@@ -6,18 +6,10 @@ export default function Quizzes() {
   const [loadingDomains, setLoadingDomains] = useState(false);
   const [error, setError] = useState("");
 
-  const startGeneralQuiz = () => {
-    alert("Step 3: Hook this to open the quiz modal (General Knowledge).");
-  };
-
-  const startDomainQuiz = () => {
-    if (!domain) {
-      alert("Select a domain first.");
-      return;
-    }
-
-    alert(`Step 3: Hook this to open the quiz modal (Domain ID: ${domain}).`);
-  };
+  const [quizOpen, setQuizOpen] = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [loadingQuiz, setLoadingQuiz] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -53,142 +45,137 @@ export default function Quizzes() {
     };
   }, []);
 
+  const startGeneralQuiz = async () => {
+    setLoadingQuiz(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/quiz/start");
+      const data = await res.json();
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error?.message || "Failed to start quiz.");
+      }
+
+      setQuestions(data.questions || []);
+      setCurrentIndex(0);
+      setQuizOpen(true);
+    } catch (err) {
+      setError(err.message || "Failed to start quiz.");
+    } finally {
+      setLoadingQuiz(false);
+    }
+  };
+
+  const closeQuiz = () => {
+    setQuizOpen(false);
+    setQuestions([]);
+    setCurrentIndex(0);
+  };
+
+  const currentQuestion = questions[currentIndex];
+
   return (
     <div style={{ padding: 16 }}>
       <h1 style={{ margin: "0 0 12px" }}>Quizzes</h1>
 
-      <div
+      <section
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 12,
-          alignItems: "start",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 12,
+          padding: 14,
+          background: "rgba(255,255,255,0.02)",
+          maxWidth: 400,
         }}
       >
-        {/* General Knowledge */}
-        <section
+        <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>
+          General Knowledge
+        </h2>
+
+        <button
+          onClick={startGeneralQuiz}
+          disabled={loadingQuiz}
           style={{
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 12,
-            padding: 14,
-            background: "rgba(255,255,255,0.02)",
+            width: "100%",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.18)",
+            background: "rgba(255,255,255,0.06)",
+            color: "inherit",
+            cursor: "pointer",
+            fontWeight: 600,
           }}
         >
-          <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>
-            General Knowledge
-          </h2>
-          <p
-            style={{
-              margin: "0 0 12px",
-              opacity: 0.85,
-              lineHeight: 1.4,
-            }}
-          >
-            Full random 25-question quiz pulled from the question bank.
-          </p>
+          {loadingQuiz ? "Starting..." : "Start General Quiz (25)"}
+        </button>
 
-          <button
-            onClick={startGeneralQuiz}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(255,255,255,0.06)",
-              color: "inherit",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-          >
-            Start General Quiz (25)
-          </button>
-        </section>
+        {error && (
+          <div style={{ marginTop: 10, color: "#ffb4b4", fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+      </section>
 
-        {/* Domain Quiz */}
-        <section
+      {quizOpen && currentQuestion && (
+        <div
           style={{
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 12,
-            padding: 14,
-            background: "rgba(255,255,255,0.02)",
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
           }}
         >
-          <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>By Domain</h2>
-          <p
+          <div
             style={{
-              margin: "0 0 12px",
-              opacity: 0.85,
-              lineHeight: 1.4,
+              width: "90%",
+              maxWidth: 600,
+              background: "#111",
+              padding: 20,
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.1)",
             }}
           >
-            Select a domain and take a random 25-question quiz from that domain only.
-          </p>
+            <h3 style={{ marginBottom: 12 }}>
+              Question {currentIndex + 1} of {questions.length}
+            </h3>
 
-          <label
-            style={{
-              display: "block",
-              fontSize: 13,
-              marginBottom: 6,
-              opacity: 0.9,
-            }}
-          >
-            Domain
-          </label>
+            <p style={{ marginBottom: 16 }}>{currentQuestion.prompt}</p>
 
-          <select
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            disabled={loadingDomains}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.25)",
-              color: "inherit",
-              marginBottom: 12,
-            }}
-          >
-            <option value="">
-              {loadingDomains ? "Loading domains..." : "Select a domain"}
-            </option>
-
-            {domains.map((d) => (
-              <option key={d.domain_id} value={d.domain_id}>
-                {d.domain_label}
-              </option>
+            {currentQuestion.choices.map((choice) => (
+              <div
+                key={choice.choice_id}
+                style={{
+                  marginBottom: 8,
+                  padding: 8,
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.15)",
+                }}
+              >
+                {choice.choice_label}. {choice.choice_text}
+              </div>
             ))}
-          </select>
 
-          {error ? (
-            <div
-              style={{
-                marginBottom: 10,
-                color: "#ffb4b4",
-                fontSize: 13,
-              }}
-            >
-              {error}
+            <div style={{ marginTop: 16 }}>
+              <button
+                onClick={closeQuiz}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.05)",
+                  color: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
             </div>
-          ) : null}
-
-          <button
-            onClick={startDomainQuiz}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(255,255,255,0.06)",
-              color: "inherit",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-          >
-            Start Domain Quiz (25)
-          </button>
-        </section>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
