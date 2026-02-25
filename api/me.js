@@ -1,6 +1,6 @@
 // api/me.js
 import { createClerkClient } from "@clerk/backend";
-import { withRls } from "./_db.js";
+import { withRls } from "./_db.js"; 
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
@@ -68,9 +68,11 @@ export default async function handler(req, res) {
       limit 1;
     `;
 
-    const { rows } = await withRlsContext(clerkUserId, (client) =>
+    const result = await withRls(clerkUserId, (client) =>
       client.query(sql, [clerkUserId])
     );
+
+    const rows = result?.rows ?? [];
 
     if (!rows.length) {
       return res.status(403).json({
