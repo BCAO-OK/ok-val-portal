@@ -27,7 +27,6 @@ export default function Quizzes() {
         }
 
         if (!mounted) return;
-
         setDomains(data.domains || []);
       } catch (err) {
         if (!mounted) return;
@@ -39,18 +38,19 @@ export default function Quizzes() {
     }
 
     loadDomains();
-
-    return () => {
-      mounted = false;
-    };
+    return () => (mounted = false);
   }, []);
 
-  const startGeneralQuiz = async () => {
+  const startQuiz = async (domainId = null) => {
     setLoadingQuiz(true);
     setError("");
 
     try {
-      const res = await fetch("/api/quiz/start");
+      const url = domainId
+        ? `/api/quiz/start?domain_id=${domainId}`
+        : `/api/quiz/start`;
+
+      const res = await fetch(url);
       const data = await res.json();
 
       if (!res.ok || !data?.ok) {
@@ -79,43 +79,108 @@ export default function Quizzes() {
     <div style={{ padding: 16 }}>
       <h1 style={{ margin: "0 0 12px" }}>Quizzes</h1>
 
-      <section
+      <div
         style={{
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 12,
-          padding: 14,
-          background: "rgba(255,255,255,0.02)",
-          maxWidth: 400,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 12,
         }}
       >
-        <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>
-          General Knowledge
-        </h2>
-
-        <button
-          onClick={startGeneralQuiz}
-          disabled={loadingQuiz}
+        {/* General Quiz */}
+        <section
           style={{
-            width: "100%",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(255,255,255,0.06)",
-            color: "inherit",
-            cursor: "pointer",
-            fontWeight: 600,
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 12,
+            padding: 14,
+            background: "rgba(255,255,255,0.02)",
           }}
         >
-          {loadingQuiz ? "Starting..." : "Start General Quiz (25)"}
-        </button>
+          <h2 style={{ marginBottom: 10 }}>General Knowledge</h2>
 
-        {error && (
-          <div style={{ marginTop: 10, color: "#ffb4b4", fontSize: 13 }}>
-            {error}
-          </div>
-        )}
-      </section>
+          <button
+            onClick={() => startQuiz()}
+            disabled={loadingQuiz}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(255,255,255,0.06)",
+              color: "inherit",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            {loadingQuiz ? "Starting..." : "Start General Quiz (25)"}
+          </button>
+        </section>
 
+        {/* Domain Quiz */}
+        <section
+          style={{
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 12,
+            padding: 14,
+            background: "rgba(255,255,255,0.02)",
+          }}
+        >
+          <h2 style={{ marginBottom: 10 }}>By Domain</h2>
+
+          <select
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            disabled={loadingDomains}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(0,0,0,0.25)",
+              color: "inherit",
+              marginBottom: 12,
+            }}
+          >
+            <option value="">
+              {loadingDomains ? "Loading domains..." : "Select a domain"}
+            </option>
+
+            {domains.map((d) => (
+              <option key={d.domain_id} value={d.domain_id}>
+                {d.domain_label}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => {
+              if (!domain) {
+                alert("Select a domain first.");
+                return;
+              }
+              startQuiz(domain);
+            }}
+            disabled={loadingQuiz}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(255,255,255,0.06)",
+              color: "inherit",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            {loadingQuiz ? "Starting..." : "Start Domain Quiz (25)"}
+          </button>
+        </section>
+      </div>
+
+      {error && (
+        <div style={{ marginTop: 12, color: "#ffb4b4" }}>{error}</div>
+      )}
+
+      {/* Quiz Modal */}
       {quizOpen && currentQuestion && (
         <div
           style={{
@@ -138,11 +203,13 @@ export default function Quizzes() {
               border: "1px solid rgba(255,255,255,0.1)",
             }}
           >
-            <h3 style={{ marginBottom: 12 }}>
+            <h3>
               Question {currentIndex + 1} of {questions.length}
             </h3>
 
-            <p style={{ marginBottom: 16 }}>{currentQuestion.prompt}</p>
+            <p style={{ margin: "16px 0" }}>
+              {currentQuestion.prompt}
+            </p>
 
             {currentQuestion.choices.map((choice) => (
               <div
