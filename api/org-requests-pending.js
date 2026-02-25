@@ -166,7 +166,7 @@ export default async function handler(req, res) {
        join public.organization o on o.organization_id = r.requested_organization_id
        left join public.role rr on rr.role_id = r.requested_role_id
        where r.is_active = true
-         and r.status = 'PENDING'
+         and r.status = 'pending'
          and r.requested_organization_id = $1
        order by coalesce(r.submitted_at, r.created_at) asc`,
       [orgId]
