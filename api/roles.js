@@ -1,4 +1,4 @@
-// api/org-requests-pending.js
+// api/roles.js
 import { verifyToken } from "@clerk/backend";
 import {
   withRls,
@@ -21,7 +21,6 @@ export default async function handler(req, res) {
       .json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
   }
 
-  // Auth
   const token = getBearerToken(req);
   if (!token) {
     return res.status(401).json({
@@ -73,76 +72,52 @@ export default async function handler(req, res) {
 
       const actorIsSystemAdmin = await isSystemAdmin(client, actor.user_id);
 
-      // If not system admin, actor must be an org approver in at least one org.
-      // We'll scope pending requests to orgs where the actor has active membership
-      // with role ASSESSOR or DIRECTOR.
-      let scopedOrgIds = null;
-
+      // If not system admin, must be an org approver in at least one org
       if (!actorIsSystemAdmin) {
-        const { rows: orgRows } = await client.query(
+        const { rows } = await client.query(
           `
-          select distinct m.organization_id
+          select 1
           from public.user_organization_membership m
           join public.role r on r.role_id = m.role_id
           where m.user_id = $1
             and m.is_active = true
             and r.role_code in ('ASSESSOR', 'DIRECTOR')
+          limit 1
           `,
           [actor.user_id]
         );
 
-        scopedOrgIds = orgRows.map((r) => r.organization_id);
-
-        if (!scopedOrgIds.length) {
+        if (!rows.length) {
           return {
             status: 403,
             body: {
               ok: false,
               error: {
                 code: "FORBIDDEN",
-                message: "Not authorized to view pending requests",
+                message: "Not authorized to view roles",
               },
             },
           };
         }
       }
 
-      // Build query: sysadmin => all pending
-      // org approver => pending where requested_organization_id IN (scoped orgs)
-      const params = [];
-      let where = `where r.status = 'pending'`;
-
-      if (!actorIsSystemAdmin) {
-        params.push(scopedOrgIds);
-        where += ` and r.requested_organization_id = any($${params.length}::uuid[])`;
-      }
-
-      const { rows } = await client.query(
+      // Return roles that can be assigned to org memberships.
+      // Exclude SYSTEM_ADMIN from assignment via org approval flow.
+      const { rows: roleRows } = await client.query(
         `
         select
-          r.request_id,
-          r.requester_user_id,
-          u.email as requester_email,
-          u.display_name as requester_display_name,
-          r.requested_organization_id,
-          o.organization_name,
-          r.requested_role_id,
-          ro.role_code as requested_role_code,
-          ro.role_name as requested_role_name,
-          r.status,
-          r.submitted_at
-        from public.organization_membership_request r
-        join public.app_user u on u.user_id = r.requester_user_id
-        join public.organization o on o.organization_id = r.requested_organization_id
-        join public.role ro on ro.role_id = r.requested_role_id
-        ${where}
-        order by r.submitted_at asc
-        limit 200
-        `,
-        params
+          role_id,
+          role_code,
+          role_name,
+          role_rank
+        from public.role
+        where is_active = true
+          and role_code <> 'SYSTEM_ADMIN'
+        order by role_rank desc, role_name asc
+        `
       );
 
-      return { status: 200, body: { ok: true, data: rows } };
+      return { status: 200, body: { ok: true, data: roleRows } };
     });
 
     return res.status(result.status).json(result.body);

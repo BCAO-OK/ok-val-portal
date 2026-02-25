@@ -1,13 +1,21 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, GhostButton, Icon, Pill, TEXT_DIM, TEXT_DIM_2 } from "../components/ui/UI";
+import {
+  Card,
+  GhostButton,
+  Icon,
+  Pill,
+  TEXT_DIM,
+  TEXT_DIM_2,
+} from "../components/ui/UI";
 import { apiFetch } from "../lib/api";
-import { getRoleCodes } from "../lib/authz";
 
 export default function Admin({ me, getToken, onRefresh }) {
-  const roleCodes = getRoleCodes(me);
-  const isSystemAdmin = roleCodes.includes("system_admin");
-  const isOrgApprover = roleCodes.includes("assessor") || roleCodes.includes("director");
-  const canUseAdmin = isSystemAdmin || isOrgApprover;
+  const meData = me?.data || me || {};
+  const isSystemAdmin = !!meData.is_system_admin || meData.global_role_code === "SYSTEM_ADMIN";
+  const membershipRole = meData.membership_role_code || null;
+
+  const isOrgApprover = membershipRole === "ASSESSOR" || membershipRole === "DIRECTOR";
+  const canUseAdmin = isSystemAdmin || isOrgApprover || !!meData.can_admin_active_org;
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -35,10 +43,15 @@ export default function Admin({ me, getToken, onRefresh }) {
       setRequests(reqs);
       setRoles(rs);
 
-      // default role selection to "user"
-      const userRoleId = rs.find((r) => r.role_code === "user")?.role_id || "";
+      // Default role selection:
+      // Prefer DIRECTOR, then ASSESSOR, else first available.
+      const directorRoleId = rs.find((r) => r.role_code === "DIRECTOR")?.role_id || "";
+      const assessorRoleId = rs.find((r) => r.role_code === "ASSESSOR")?.role_id || "";
+      const fallbackRoleId = rs[0]?.role_id || "";
+      const defaultRoleId = directorRoleId || assessorRoleId || fallbackRoleId;
+
       const defaults = {};
-      for (const r of reqs) defaults[r.request_id] = userRoleId;
+      for (const r of reqs) defaults[r.request_id] = defaultRoleId;
 
       setSelectedRoleByRequestId((prev) => ({ ...defaults, ...prev }));
       setLoading(false);
@@ -64,7 +77,10 @@ export default function Admin({ me, getToken, onRefresh }) {
 
   async function decide(requestId, decision) {
     try {
-      setActionState((s) => ({ ...s, [requestId]: { status: "working", error: "" } }));
+      setActionState((s) => ({
+        ...s,
+        [requestId]: { status: "working", error: "" },
+      }));
 
       const body = { request_id: requestId, decision };
 
@@ -73,7 +89,10 @@ export default function Admin({ me, getToken, onRefresh }) {
         if (!approved_role_id) {
           setActionState((s) => ({
             ...s,
-            [requestId]: { status: "error", error: "Select an approved role first." },
+            [requestId]: {
+              status: "error",
+              error: "Select an approved role first.",
+            },
           }));
           return;
         }
@@ -88,7 +107,10 @@ export default function Admin({ me, getToken, onRefresh }) {
       await loadAll();
       await onRefresh?.();
 
-      setActionState((s) => ({ ...s, [requestId]: { status: "ok", error: "" } }));
+      setActionState((s) => ({
+        ...s,
+        [requestId]: { status: "ok", error: "" },
+      }));
     } catch (e) {
       setActionState((s) => ({
         ...s,
@@ -102,7 +124,8 @@ export default function Admin({ me, getToken, onRefresh }) {
       <div style={{ display: "grid", gap: 14 }}>
         <Card title="Admin" subtitle="Access denied.">
           <Pill tone="bad">
-            <Icon name="dot" /> You need system_admin, assessor, or director to use Admin.
+            <Icon name="dot" /> You need SYSTEM_ADMIN or an ASSESSOR/DIRECTOR membership role to
+            use Admin.
           </Pill>
         </Card>
       </div>
@@ -111,22 +134,60 @@ export default function Admin({ me, getToken, onRefresh }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <div style={{ fontSize: 22, fontWeight: 1000, letterSpacing: 0.2 }}>Admin</div>
-          <div style={{ marginTop: 6, fontSize: 13, color: TEXT_DIM, lineHeight: 1.45 }}>
-            Approve organization access requests (audit-friendly workflow).
+          <div style={{ fontSize: 22, fontWeight: 1000, letterSpacing: 0.2 }}>
+            Admin
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 13,
+              color: TEXT_DIM,
+              lineHeight: 1.45,
+            }}
+          >
+            Approve organization access requests (membership-scoped, audit-friendly).
+          </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {isSystemAdmin ? (
+              <Pill tone="ok">
+                <Icon name="dot" /> SYSTEM_ADMIN
+              </Pill>
+            ) : null}
+            {membershipRole ? (
+              <Pill>
+                <Icon name="dot" /> Active org role: {membershipRole}
+              </Pill>
+            ) : null}
+            {meData.active_organization?.organization_name ? (
+              <Pill>
+                <Icon name="dot" /> Active org: {meData.active_organization.organization_name}
+              </Pill>
+            ) : null}
           </div>
         </div>
 
-        <GhostButton onClick={loadAll} icon={<Icon name="refresh" />} ariaLabel="Refresh admin">
+        <GhostButton
+          onClick={loadAll}
+          icon={<Icon name="refresh" />}
+          ariaLabel="Refresh admin"
+        >
           Refresh
         </GhostButton>
       </div>
 
       <Card
         title="Pending organization requests"
-        subtitle="Assessor/Director can approve requests for their org. System admin can approve any."
+        subtitle="DIRECTOR/ASSESSOR can approve requests for organizations they administer. SYSTEM_ADMIN can approve any."
       >
         {loading ? (
           <Pill tone="warn">
@@ -137,10 +198,14 @@ export default function Admin({ me, getToken, onRefresh }) {
             <Pill tone="bad">
               <Icon name="dot" /> Failed to load
             </Pill>
-            <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.5 }}>{err}</div>
+            <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.5 }}>
+              {err}
+            </div>
           </div>
         ) : requests.length === 0 ? (
-          <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>No pending requests.</div>
+          <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>
+            No pending requests.
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
             {requests.map((r) => {
@@ -159,11 +224,25 @@ export default function Admin({ me, getToken, onRefresh }) {
                     gap: 10,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                      <Pill><Icon name="dot" /> {r.requester_display_name || "—"}</Pill>
-                      <Pill><Icon name="dot" /> {r.requester_email || "—"}</Pill>
-                      <Pill><Icon name="dot" /> {r.organization_name || "—"}</Pill>
+                      <Pill>
+                        <Icon name="dot" /> {r.requester_display_name || "—"}
+                      </Pill>
+                      <Pill>
+                        <Icon name="dot" /> {r.requester_email || "—"}
+                      </Pill>
+                      <Pill>
+                        <Icon name="dot" /> {r.organization_name || "—"}
+                      </Pill>
                     </div>
                     <Pill tone="warn">
                       <Icon name="dot" /> pending
@@ -171,11 +250,16 @@ export default function Admin({ me, getToken, onRefresh }) {
                   </div>
 
                   <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Approved role</div>
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>
+                      Approved membership role
+                    </div>
                     <select
                       value={selectedRoleId}
                       onChange={(e) =>
-                        setSelectedRoleByRequestId((m) => ({ ...m, [r.request_id]: e.target.value }))
+                        setSelectedRoleByRequestId((m) => ({
+                          ...m,
+                          [r.request_id]: e.target.value,
+                        }))
                       }
                       style={{
                         width: "100%",
@@ -194,7 +278,7 @@ export default function Admin({ me, getToken, onRefresh }) {
                       ))}
                     </select>
                     <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.45 }}>
-                      This sets the user’s global role (one role per user currently).
+                      This sets the user’s role within the requested organization (membership-scoped).
                     </div>
                   </div>
 
