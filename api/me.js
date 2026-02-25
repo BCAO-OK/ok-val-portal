@@ -57,7 +57,6 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    // --- Data (membership-first) ---
     const result = await withRls(clerkUserId, async (client) => {
       const appUser = await getAppUserByClerkId(client, clerkUserId);
 
@@ -65,14 +64,14 @@ export default async function handler(req, res) {
         return { appUser: null };
       }
 
-      const activeOrgId =
-        appUser.active_organization_id || appUser.organization_id || null;
+      // STRICT: org context is active_organization_id only (no fallback to legacy organization_id)
+      const activeOrgId = appUser.active_organization_id || null;
 
       // SYSTEM_ADMIN only (global role)
       const globalRoleCode = await getGlobalRoleCode(client, appUser.user_id);
       const isSystemAdmin = globalRoleCode === "SYSTEM_ADMIN";
 
-      // Membership role for the active org
+      // Membership role for the active org (strict)
       const membershipRoleCode = activeOrgId
         ? await getMembershipRoleCode(client, appUser.user_id, activeOrgId)
         : null;
@@ -86,9 +85,7 @@ export default async function handler(req, res) {
       if (activeOrgId) {
         const { rows: orgRows } = await client.query(
           `
-          select
-            organization_id,
-            organization_name
+          select organization_id, organization_name
           from public.organization
           where organization_id = $1
           limit 1
@@ -98,7 +95,7 @@ export default async function handler(req, res) {
         activeOrg = orgRows[0] || null;
       }
 
-      // Keep your pending request behavior
+      // Pending request
       const { rows: pendingRows } = await client.query(
         `
         select json_build_object(
@@ -118,38 +115,37 @@ export default async function handler(req, res) {
 
       const pendingRequest = pendingRows[0]?.pending_request || null;
 
-      // Preserve old fields for UI compatibility, but introduce new ones:
-      const data = {
-        user_id: appUser.user_id,
-        clerk_user_id: appUser.clerk_user_id,
-        email: appUser.email,
-        display_name: appUser.display_name,
+      return {
+        appUser,
+        data: {
+          user_id: appUser.user_id,
+          clerk_user_id: appUser.clerk_user_id,
+          email: appUser.email,
+          display_name: appUser.display_name,
 
-        // Legacy single-org field (kept for backward compatibility)
-        organization_id: appUser.organization_id,
+          // Legacy field still returned for transition visibility ONLY
+          organization_id: appUser.organization_id,
 
-        // New: active org context
-        active_organization_id: activeOrgId,
-        active_organization: activeOrg
-          ? {
-            organization_id: activeOrg.organization_id,
-            organization_name: activeOrg.organization_name,
-          }
-          : null,
+          // Strict active org context
+          active_organization_id: activeOrgId,
+          active_organization: activeOrg
+            ? {
+              organization_id: activeOrg.organization_id,
+              organization_name: activeOrg.organization_name,
+            }
+            : null,
 
-        // New: explicit role outputs
-        global_role_code: globalRoleCode, // only meaningful for SYSTEM_ADMIN
-        membership_role_code: membershipRoleCode, // role within active org
+          // Roles
+          global_role_code: globalRoleCode,
+          membership_role_code: membershipRoleCode,
 
-        // New: flags the UI can use
-        is_system_admin: isSystemAdmin,
-        can_admin_active_org: canAdminActiveOrg,
+          // Flags
+          is_system_admin: isSystemAdmin,
+          can_admin_active_org: canAdminActiveOrg,
 
-        // Keep existing behavior
-        pending_request: pendingRequest,
+          pending_request: pendingRequest,
+        },
       };
-
-      return { appUser, data };
     });
 
     if (!result?.appUser) {

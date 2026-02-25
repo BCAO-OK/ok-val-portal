@@ -264,13 +264,12 @@ export default async function handler(req, res) {
       );
 
       // Set requester's active org context for UX
-      // (legacy org_id kept in sync for now to avoid breaking older UI/routes)
+      // NOTE: We no longer write legacy app_user.organization_id here.
       await client.query(
         `
         update public.app_user
         set
           active_organization_id = $2,
-          organization_id = coalesce(organization_id, $2),
           updated_at = now(),
           updated_by = $3
         where user_id = $1
