@@ -1,13 +1,6 @@
 // api/questions.js
 import { createClerkClient } from "@clerk/backend";
-import pkg from "pg";
-
-const { Pool } = pkg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+import { pool } from "./_db.js";
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
@@ -27,24 +20,48 @@ function toWebRequest(req) {
   return new Request(url, { method: req.method, headers });
 }
 
-async function getAppUser(req) {
-  const webReq = toWebRequest(req);
-  const authResult = await clerk.authenticateRequest(webReq);
+function hasEditRights(appUser) {
+  const roles = Array.isArray(appUser?.roles) ? appUser.roles : [];
+  const codes = new Set(roles.map((r) => r.role_code));
+  return codes.has("system_admin") || codes.has("director") || codes.has("assessor");
+}
 
-  if (!authResult?.isAuthenticated) {
-    return { ok: false, status: 401, error: "Unauthorized" };
+function normalizeChoices(choices) {
+  if (!Array.isArray(choices) || choices.length !== 4) {
+    throw new Error("Exactly 4 choices (A-D) required.");
   }
 
-  const clerkUserId = authResult.toAuth().userId;
+  const allowed = new Set(["A", "B", "C", "D"]);
+  const seen = new Set();
 
+  const normalized = choices.map((c) => {
+    const label = String(c.choice_label).toUpperCase();
+    if (!allowed.has(label) || seen.has(label)) {
+      throw new Error("Invalid or duplicate choice_label.");
+    }
+    seen.add(label);
+
+    return {
+      choice_label: label,
+      choice_text: String(c.choice_text),
+      is_correct: Boolean(c.is_correct),
+    };
+  });
+
+  if (normalized.filter((c) => c.is_correct).length !== 1) {
+    throw new Error("Exactly one correct answer required.");
+  }
+
+  return normalized.sort((a, b) => a.choice_label.localeCompare(b.choice_label));
+}
+
+async function loadAppUser(client, clerkUserId) {
   const sql = `
     select
       u.user_id,
       coalesce(
         json_agg(
-          json_build_object(
-            'role_code', r.role_code
-          )
+          json_build_object('role_code', r.role_code)
         ) filter (where r.role_code is not null),
         '[]'::json
       ) as roles
@@ -56,61 +73,41 @@ async function getAppUser(req) {
     group by u.user_id
     limit 1;
   `;
-
-  const { rows } = await pool.query(sql, [clerkUserId]);
-
-  if (!rows.length) {
-    return { ok: false, status: 403, error: "User not provisioned" };
-  }
-
-  return { ok: true, user: rows[0] };
-}
-
-function hasEditRights(appUser) {
-  const roles = Array.isArray(appUser?.roles) ? appUser.roles : [];
-  const codes = new Set(roles.map(r => r.role_code));
-  return codes.has("db_admin") || codes.has("db_editor");
-}
-
-function normalizeChoices(choices) {
-  if (!Array.isArray(choices) || choices.length !== 4) {
-    throw new Error("Exactly 4 choices (A-D) required.");
-  }
-
-  const allowed = new Set(["A", "B", "C", "D"]);
-  const seen = new Set();
-
-  const normalized = choices.map(c => {
-    const label = String(c.choice_label).toUpperCase();
-    if (!allowed.has(label) || seen.has(label)) {
-      throw new Error("Invalid or duplicate choice_label.");
-    }
-    seen.add(label);
-
-    return {
-      choice_label: label,
-      choice_text: String(c.choice_text),
-      is_correct: Boolean(c.is_correct)
-    };
-  });
-
-  if (normalized.filter(c => c.is_correct).length !== 1) {
-    throw new Error("Exactly one correct answer required.");
-  }
-
-  return normalized.sort((a,b)=>a.choice_label.localeCompare(b.choice_label));
+  const { rows } = await client.query(sql, [clerkUserId]);
+  return rows[0] || null;
 }
 
 export default async function handler(req, res) {
+  const client = await pool.connect();
   try {
-    const me = await getAppUser(req);
-    if (!me.ok) return res.status(me.status).json({ ok:false, error:me.error });
+    // 1) Authenticate once
+    const webReq = toWebRequest(req);
+    const authResult = await clerk.authenticateRequest(webReq);
+
+    if (!authResult?.isAuthenticated) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const clerkUserId = authResult.toAuth().userId;
+    if (!clerkUserId) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    // 2) Transaction + RLS session context
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.clerk_user_id', $1, true)", [clerkUserId]);
+
+    // 3) Load provisioned app user + roles (now also inside the same context)
+    const appUser = await loadAppUser(client, clerkUserId);
+    if (!appUser) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ ok: false, error: "User not provisioned" });
+    }
 
     // =========================
     // GET QUESTIONS
     // =========================
     if (req.method === "GET") {
-
       const {
         q = "",
         category_id = "",
@@ -119,18 +116,16 @@ export default async function handler(req, res) {
         active = "true",
         verified = "",
         page = "1",
-        pageSize = "25"
+        pageSize = "25",
       } = req.query;
 
-      const pageNum = Math.max(parseInt(page)||1,1);
-      const pageSizeNum = Math.min(Math.max(parseInt(pageSize)||25,1),100);
+      const pageNum = Math.max(parseInt(page) || 1, 1);
+      const pageSizeNum = Math.min(Math.max(parseInt(pageSize) || 25, 1), 100);
       const offset = (pageNum - 1) * pageSizeNum;
 
       const wantsActive = active === "true";
       const verifiedFilter =
-        verified === "" ? null :
-        verified === "true" ? true :
-        verified === "false" ? false : null;
+        verified === "" ? null : verified === "true" ? true : verified === "false" ? false : null;
 
       const sql = `
         select
@@ -192,87 +187,68 @@ export default async function handler(req, res) {
         wantsActive,
         verifiedFilter,
         pageSizeNum,
-        offset
+        offset,
       ];
 
-      const { rows } = await pool.query(sql, params);
-      return res.status(200).json({ ok:true, data:rows });
+      const { rows } = await client.query(sql, params);
+      await client.query("COMMIT");
+      return res.status(200).json({ ok: true, data: rows });
     }
 
     // =========================
     // CREATE QUESTION
     // =========================
     if (req.method === "POST") {
-
-      if (!hasEditRights(me.user)) {
-        return res.status(403).json({ ok:false, error:"Forbidden" });
+      if (!hasEditRights(appUser)) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ ok: false, error: "Forbidden" });
       }
 
-      const {
-        domain_id,
-        prompt,
-        explanation,
-        citation_text,
-        difficulty,
-        choices
-      } = req.body;
-
+      const { domain_id, prompt, explanation, citation_text, difficulty, choices } = req.body;
       const normalized = normalizeChoices(choices);
 
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
+      const qRes = await client.query(
+        `
+        insert into public.question (
+          domain_id, prompt, explanation, citation_text,
+          difficulty, is_active, is_verified,
+          created_by, updated_by
+        )
+        values ($1,$2,$3,$4,$5,true,false,$6,$6)
+        returning *;
+        `,
+        [domain_id, prompt, explanation, citation_text, difficulty, appUser.user_id]
+      );
 
-        const qRes = await client.query(`
-          insert into public.question (
-            domain_id, prompt, explanation, citation_text,
-            difficulty, is_active, is_verified,
-            created_by, updated_by
+      const question = qRes.rows[0];
+
+      for (const c of normalized) {
+        await client.query(
+          `
+          insert into public.choice (
+            question_id, choice_label, choice_text,
+            is_correct, created_by, updated_by
           )
-          values ($1,$2,$3,$4,$5,true,false,$6,$6)
-          returning *;
-        `, [
-          domain_id,
-          prompt,
-          explanation,
-          citation_text,
-          difficulty,
-          me.user.user_id
-        ]);
-
-        const question = qRes.rows[0];
-
-        for (const c of normalized) {
-          await client.query(`
-            insert into public.choice (
-              question_id, choice_label, choice_text,
-              is_correct, created_by, updated_by
-            )
-            values ($1,$2,$3,$4,$5,$5);
-          `, [
-            question.question_id,
-            c.choice_label,
-            c.choice_text,
-            c.is_correct,
-            me.user.user_id
-          ]);
-        }
-
-        await client.query("COMMIT");
-        return res.status(201).json({ ok:true, data:question });
-
-      } catch (err) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ ok:false, error:err.message });
-      } finally {
-        client.release();
+          values ($1,$2,$3,$4,$5,$5);
+          `,
+          [question.question_id, c.choice_label, c.choice_text, c.is_correct, appUser.user_id]
+        );
       }
+
+      await client.query("COMMIT");
+      return res.status(201).json({ ok: true, data: question });
     }
 
-    return res.status(405).json({ ok:false, error:"Method not allowed" });
-
+    await client.query("ROLLBACK");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
   } catch (err) {
+    try {
+      // if BEGIN failed, this might throw; ignore
+      await pool.query("ROLLBACK");
+    } catch {}
     console.error(err);
-    return res.status(500).json({ ok:false, error:"Server error" });
+    return res.status(500).json({ ok: false, error: "Server error" });
+  } finally {
+    client.release();
   }
 }
