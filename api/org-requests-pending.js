@@ -142,7 +142,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // org-scoped: approvers see pending requests for their active org
     const orgId = au.user.active_organization_id;
 
     const { rows } = await pool.query(
@@ -151,13 +150,21 @@ export default async function handler(req, res) {
          r.requester_user_id,
          u.display_name as requester_display_name,
          u.email as requester_email,
+
          r.requested_organization_id,
+         o.organization_name,
+
          r.requested_role_id,
+         rr.role_code as requested_role_code,
+         rr.role_name as requested_role_name,
+
          r.status,
          r.submitted_at,
          r.created_at
        from public.organization_membership_request r
        join public.app_user u on u.user_id = r.requester_user_id
+       join public.organization o on o.organization_id = r.requested_organization_id
+       left join public.role rr on rr.role_id = r.requested_role_id
        where r.is_active = true
          and r.status = 'PENDING'
          and r.requested_organization_id = $1

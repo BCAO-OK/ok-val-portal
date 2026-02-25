@@ -69,9 +69,11 @@ export default async function handler(req, res) {
   const body = parseJsonBody(req);
 
   const request_id = body.request_id || body.requestId || body.requestID || null;
-  const decision = body.decision || null;
+  const decisionRaw = body.decision || null;
   const approved_role_id = body.approved_role_id || body.approvedRoleId || null;
   const decision_note = body.decision_note || body.decisionNote || null;
+
+  const decision = typeof decisionRaw === "string" ? decisionRaw.toLowerCase() : null;
 
   if (!request_id || !decision) {
     return res.status(400).json({
@@ -153,7 +155,9 @@ export default async function handler(req, res) {
           },
         };
       }
-      if (reqRow.status !== "pending") {
+
+      // ✅ IMPORTANT: statuses are uppercase in your system
+      if (String(reqRow.status || "").toUpperCase() !== "PENDING") {
         return {
           status: 409,
           body: {
@@ -189,11 +193,12 @@ export default async function handler(req, res) {
           `
           update public.organization_membership_request
           set
-            status = 'rejected',
+            status = 'REJECTED',
             decided_at = now(),
             decided_by_user_id = $2,
             decision_note = $3,
             approved_role_id = null,
+            updated_at = now(),
             updated_by = $2
           where request_id = $1
           returning request_id, status, decided_at, decided_by_user_id, decision_note, approved_role_id
@@ -301,11 +306,12 @@ export default async function handler(req, res) {
         `
         update public.organization_membership_request
         set
-          status = 'approved',
+          status = 'APPROVED',
           approved_role_id = $4,
           decided_at = now(),
           decided_by_user_id = $2,
           decision_note = $3,
+          updated_at = now(),
           updated_by = $2
         where request_id = $1
         returning
