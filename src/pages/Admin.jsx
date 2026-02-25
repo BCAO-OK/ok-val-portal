@@ -1,6 +1,240 @@
-import React from "react";
-import Placeholder from "./Placeholder";
+import React, { useEffect, useMemo, useState } from "react";
+import { Card, GhostButton, Icon, Pill, TEXT_DIM, TEXT_DIM_2 } from "../components/ui/UI";
+import { apiFetch } from "../lib/api";
+import { getRoleCodes } from "../lib/authz";
 
-export default function Admin() {
-  return <Placeholder title="Admin" description="User role management + audit-friendly configuration (admin only)." />;
+export default function Admin({ me, getToken, onRefresh }) {
+  const roleCodes = getRoleCodes(me);
+  const isSystemAdmin = roleCodes.includes("system_admin");
+  const isOrgApprover = roleCodes.includes("assessor") || roleCodes.includes("director");
+  const canUseAdmin = isSystemAdmin || isOrgApprover;
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [requests, setRequests] = useState([]);
+  const [roles, setRoles] = useState([]);
+
+  // Per-request selection
+  const [selectedRoleByRequestId, setSelectedRoleByRequestId] = useState({});
+  const [actionState, setActionState] = useState({}); // requestId -> {status, error}
+
+  async function loadAll() {
+    try {
+      setLoading(true);
+      setErr("");
+
+      const [pending, rolesResp] = await Promise.all([
+        apiFetch(getToken, "/api/org-requests-pending"),
+        apiFetch(getToken, "/api/roles"),
+      ]);
+
+      const reqs = pending?.data || [];
+      const rs = rolesResp?.data || [];
+
+      setRequests(reqs);
+      setRoles(rs);
+
+      // default role selection to "user"
+      const userRoleId = rs.find((r) => r.role_code === "user")?.role_id || "";
+      const defaults = {};
+      for (const r of reqs) defaults[r.request_id] = userRoleId;
+
+      setSelectedRoleByRequestId((prev) => ({ ...defaults, ...prev }));
+      setLoading(false);
+    } catch (e) {
+      setLoading(false);
+      setErr(String(e?.message || e));
+    }
+  }
+
+  useEffect(() => {
+    if (!canUseAdmin) return;
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canUseAdmin]);
+
+  const roleOptions = useMemo(() => {
+    return (roles || []).map((r) => ({
+      id: r.role_id,
+      label: `${r.role_name} (${r.role_code})`,
+      code: r.role_code,
+    }));
+  }, [roles]);
+
+  async function decide(requestId, decision) {
+    try {
+      setActionState((s) => ({ ...s, [requestId]: { status: "working", error: "" } }));
+
+      const body = { request_id: requestId, decision };
+
+      if (decision === "approve") {
+        const approved_role_id = selectedRoleByRequestId[requestId];
+        if (!approved_role_id) {
+          setActionState((s) => ({
+            ...s,
+            [requestId]: { status: "error", error: "Select an approved role first." },
+          }));
+          return;
+        }
+        body.approved_role_id = approved_role_id;
+      }
+
+      await apiFetch(getToken, "/api/org-requests-decide", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      await loadAll();
+      await onRefresh?.();
+
+      setActionState((s) => ({ ...s, [requestId]: { status: "ok", error: "" } }));
+    } catch (e) {
+      setActionState((s) => ({
+        ...s,
+        [requestId]: { status: "error", error: String(e?.message || e) },
+      }));
+    }
+  }
+
+  if (!canUseAdmin) {
+    return (
+      <div style={{ display: "grid", gap: 14 }}>
+        <Card title="Admin" subtitle="Access denied.">
+          <Pill tone="bad">
+            <Icon name="dot" /> You need system_admin, assessor, or director to use Admin.
+          </Pill>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 1000, letterSpacing: 0.2 }}>Admin</div>
+          <div style={{ marginTop: 6, fontSize: 13, color: TEXT_DIM, lineHeight: 1.45 }}>
+            Approve organization access requests (audit-friendly workflow).
+          </div>
+        </div>
+
+        <GhostButton onClick={loadAll} icon={<Icon name="refresh" />} ariaLabel="Refresh admin">
+          Refresh
+        </GhostButton>
+      </div>
+
+      <Card
+        title="Pending organization requests"
+        subtitle="Assessor/Director can approve requests for their org. System admin can approve any."
+      >
+        {loading ? (
+          <Pill tone="warn">
+            <Icon name="dot" /> Loading…
+          </Pill>
+        ) : err ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <Pill tone="bad">
+              <Icon name="dot" /> Failed to load
+            </Pill>
+            <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.5 }}>{err}</div>
+          </div>
+        ) : requests.length === 0 ? (
+          <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>No pending requests.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {requests.map((r) => {
+              const state = actionState[r.request_id] || { status: "idle", error: "" };
+              const selectedRoleId = selectedRoleByRequestId[r.request_id] || "";
+
+              return (
+                <div
+                  key={r.request_id}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    borderRadius: 16,
+                    padding: 12,
+                    background: "rgba(255,255,255,0.02)",
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <Pill><Icon name="dot" /> {r.requester_display_name || "—"}</Pill>
+                      <Pill><Icon name="dot" /> {r.requester_email || "—"}</Pill>
+                      <Pill><Icon name="dot" /> {r.organization_name || "—"}</Pill>
+                    </div>
+                    <Pill tone="warn">
+                      <Icon name="dot" /> pending
+                    </Pill>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>Approved role</div>
+                    <select
+                      value={selectedRoleId}
+                      onChange={(e) =>
+                        setSelectedRoleByRequestId((m) => ({ ...m, [r.request_id]: e.target.value }))
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(255,255,255,0.14)",
+                        background: "rgba(0,0,0,0.25)",
+                        color: "white",
+                        outline: "none",
+                      }}
+                    >
+                      {roleOptions.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.45 }}>
+                      This sets the user’s global role (one role per user currently).
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <GhostButton
+                      onClick={() => decide(r.request_id, "approve")}
+                      icon={<Icon name="check" />}
+                      ariaLabel="Approve request"
+                      disabled={state.status === "working"}
+                    >
+                      {state.status === "working" ? "Working…" : "Approve"}
+                    </GhostButton>
+
+                    <GhostButton
+                      onClick={() => decide(r.request_id, "reject")}
+                      icon={<Icon name="x" />}
+                      ariaLabel="Reject request"
+                      disabled={state.status === "working"}
+                    >
+                      Reject
+                    </GhostButton>
+
+                    {state.status === "ok" ? (
+                      <Pill tone="ok">
+                        <Icon name="dot" /> Done
+                      </Pill>
+                    ) : null}
+
+                    {state.status === "error" ? (
+                      <Pill tone="bad">
+                        <Icon name="dot" /> {state.error}
+                      </Pill>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
 }
