@@ -1,130 +1,155 @@
 // api/roles.js
-import { verifyToken } from "@clerk/backend";
-import {
-  withRls,
-  getAppUserByClerkId,
-  isSystemAdmin,
-} from "./_db.js";
+import { createClerkClient } from "@clerk/backend";
+import pkg from "pg";
 
-function getBearerToken(req) {
-  const authHeader =
-    req.headers["authorization"] || req.headers["Authorization"] || "";
-  if (typeof authHeader !== "string") return null;
-  const m = authHeader.match(/^Bearer\s+(.+)$/i);
-  return m?.[1] || null;
+const { Pool } = pkg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+const clerk = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY,
+  publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+});
+
+function toWebRequest(req) {
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  const url = `${proto}://${host}${req.url}`;
+
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers || {})) {
+    if (typeof v === "string") headers.set(k, v);
+  }
+
+  return new Request(url, { method: req.method, headers });
+}
+
+function json(res, status, body) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
+async function getAppUser(req) {
+  const webReq = toWebRequest(req);
+  const authResult = await clerk.authenticateRequest(webReq);
+
+  if (!authResult?.isAuthenticated) {
+    return {
+      ok: false,
+      status: 401,
+      error: { code: "UNAUTHENTICATED", message: "Sign in required" },
+    };
+  }
+
+  const clerkUserId = authResult.toAuth().userId;
+
+  const { rows: userRows } = await pool.query(
+    `select user_id, clerk_user_id, email, display_name, active_organization_id
+     from public.app_user
+     where clerk_user_id = $1
+     limit 1`,
+    [clerkUserId]
+  );
+
+  if (userRows.length === 0) {
+    return {
+      ok: false,
+      status: 403,
+      error: { code: "FORBIDDEN", message: "App user not found" },
+    };
+  }
+
+  const u = userRows[0];
+
+  // global role (system-wide)
+  const { rows: globalRoleRows } = await pool.query(
+    `select r.role_code
+     from public.user_role ur
+     join public.role r on r.role_id = ur.role_id
+     where ur.user_id = $1
+     order by r.role_rank desc
+     limit 1`,
+    [u.user_id]
+  );
+
+  const global_role_code = globalRoleRows[0]?.role_code || "user";
+  const is_system_admin = String(global_role_code).toLowerCase() === "system_admin";
+
+  // membership role (active org)
+  let membership_role_code = null;
+
+  if (u.active_organization_id) {
+    const { rows: memRows } = await pool.query(
+      `select r.role_code
+       from public.user_organization_membership uom
+       join public.role r on r.role_id = uom.role_id
+       where uom.user_id = $1 and uom.organization_id = $2
+       limit 1`,
+      [u.user_id, u.active_organization_id]
+    );
+
+    membership_role_code = memRows[0]?.role_code || null;
+  }
+
+  const m = (membership_role_code || "").toLowerCase();
+  const can_admin_active_org = is_system_admin || m === "assessor" || m === "director";
+
+  return {
+    ok: true,
+    user: {
+      ...u,
+      global_role_code,
+      membership_role_code,
+      is_system_admin,
+      can_admin_active_org,
+    },
+  };
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    return res
-      .status(405)
-      .json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
-  }
-
-  const token = getBearerToken(req);
-  if (!token) {
-    return res.status(401).json({
-      ok: false,
-      error: { code: "UNAUTHORIZED", message: "Missing Bearer token" },
-    });
-  }
-
-  let clerkUserId = null;
   try {
-    const verified = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY,
-      authorizedParties: [
-        "https://ok-val-portal.vercel.app",
-        "http://localhost:5173",
-      ],
-      // jwtKey: process.env.CLERK_JWT_KEY,
-    });
-    clerkUserId = verified?.sub || null;
-    if (!clerkUserId) throw new Error("Token missing sub");
+    if (req.method !== "GET") {
+      return json(res, 405, {
+        ok: false,
+        error: { code: "METHOD_NOT_ALLOWED", message: "Use GET" },
+      });
+    }
+
+    const au = await getAppUser(req);
+    if (!au.ok) return json(res, au.status, { ok: false, error: au.error });
+
+    // ✅ THIS IS THE FIX:
+    // Allow assessor/director in active org (or system admin) to view roles.
+    if (!au.user.can_admin_active_org) {
+      return json(res, 403, {
+        ok: false,
+        error: { code: "FORBIDDEN", message: "Not authorized to view roles" },
+      });
+    }
+
+    // If not system admin, do not expose system_admin role for assignment
+    const { rows } = await pool.query(
+      au.user.is_system_admin
+        ? `select role_id, role_code, role_name, role_rank, is_active
+           from public.role
+           where is_active = true
+           order by role_rank desc, role_code asc`
+        : `select role_id, role_code, role_name, role_rank, is_active
+           from public.role
+           where is_active = true
+             and lower(role_code) <> 'system_admin'
+           order by role_rank desc, role_code asc`
+    );
+
+    return json(res, 200, { ok: true, data: rows });
   } catch (e) {
-    return res.status(401).json({
+    return json(res, 500, {
       ok: false,
-      error: { code: "UNAUTHORIZED", message: "Invalid token" },
-    });
-  }
-
-  try {
-    const result = await withRls(clerkUserId, async (client) => {
-      const actor = await getAppUserByClerkId(client, clerkUserId);
-      if (!actor) {
-        return {
-          status: 404,
-          body: {
-            ok: false,
-            error: { code: "NOT_FOUND", message: "app_user not found" },
-          },
-        };
-      }
-      if (!actor.is_active) {
-        return {
-          status: 403,
-          body: {
-            ok: false,
-            error: { code: "FORBIDDEN", message: "User is inactive" },
-          },
-        };
-      }
-
-      const actorIsSystemAdmin = await isSystemAdmin(client, actor.user_id);
-
-      // If not system admin, must be an org approver in at least one org
-      if (!actorIsSystemAdmin) {
-        const { rows } = await client.query(
-          `
-          select 1
-          from public.user_organization_membership m
-          join public.role r on r.role_id = m.role_id
-          where m.user_id = $1
-            and m.is_active = true
-            and r.role_code in ('ASSESSOR', 'DIRECTOR')
-          limit 1
-          `,
-          [actor.user_id]
-        );
-
-        if (!rows.length) {
-          return {
-            status: 403,
-            body: {
-              ok: false,
-              error: {
-                code: "FORBIDDEN",
-                message: "Not authorized to view roles",
-              },
-            },
-          };
-        }
-      }
-
-      // Return roles that can be assigned to org memberships.
-      // Exclude SYSTEM_ADMIN from assignment via org approval flow.
-      const { rows: roleRows } = await client.query(
-        `
-        select
-          role_id,
-          role_code,
-          role_name,
-          role_rank
-        from public.role
-        where is_active = true
-          and role_code <> 'SYSTEM_ADMIN'
-        order by role_rank desc, role_name asc
-        `
-      );
-
-      return { status: 200, body: { ok: true, data: roleRows } };
-    });
-
-    return res.status(result.status).json(result.body);
-  } catch (e) {
-    return res.status(500).json({
-      ok: false,
-      error: { code: "SERVER_ERROR", message: e?.message || "Unknown error" },
+      error: { code: "SERVER_ERROR", message: String(e?.message || e) },
     });
   }
 }
