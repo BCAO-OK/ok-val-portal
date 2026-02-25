@@ -15,6 +15,22 @@ function getBearerToken(req) {
   return m?.[1] || null;
 }
 
+function parseJsonBody(req) {
+  // Vercel can provide req.body as object OR string depending on client/helper/headers.
+  let body = req.body;
+
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      body = {};
+    }
+  }
+
+  if (!body || typeof body !== "object") body = {};
+  return body;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res
@@ -50,8 +66,20 @@ export default async function handler(req, res) {
     });
   }
 
-  // Input
-  const { request_id, decision, approved_role_id, decision_note } = req.body || {};
+  // Input (robust parsing + alias support)
+  const body = parseJsonBody(req);
+
+  const request_id =
+    body.request_id || body.requestId || body.requestID || null;
+
+  const decision = body.decision || null;
+
+  const approved_role_id =
+    body.approved_role_id || body.approvedRoleId || null;
+
+  const decision_note =
+    body.decision_note || body.decisionNote || null;
+
   if (!request_id || !decision) {
     return res.status(400).json({
       ok: false,
@@ -61,6 +89,7 @@ export default async function handler(req, res) {
       },
     });
   }
+
   if (decision !== "approve" && decision !== "reject") {
     return res.status(400).json({
       ok: false,
@@ -70,6 +99,7 @@ export default async function handler(req, res) {
       },
     });
   }
+
   if (decision === "approve" && !approved_role_id) {
     return res.status(400).json({
       ok: false,
