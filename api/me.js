@@ -1,6 +1,6 @@
 // api/me.js
 import { createClerkClient } from "@clerk/backend";
-import { withRlsContext } from "./_db.js";
+import { withRls } from "./_db.js";
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
