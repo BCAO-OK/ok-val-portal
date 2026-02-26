@@ -19,6 +19,10 @@ export default function Quizzes() {
   const [answers, setAnswers] = useState([]); // [{question_id, selected_choice_id, is_correct}]
   const [resultsOpen, setResultsOpen] = useState(false);
 
+  // Logging context
+  const [activeDomainId, setActiveDomainId] = useState(null);
+  const [logError, setLogError] = useState("");
+
   useEffect(() => {
     let mounted = true;
 
@@ -59,11 +63,14 @@ export default function Quizzes() {
     setIsCorrect(null);
     setAnswers([]);
     setResultsOpen(false);
+    setActiveDomainId(null);
+    setLogError("");
   };
 
   const startQuiz = async (domainId = null) => {
     setLoadingQuiz(true);
     setError("");
+    setLogError("");
 
     try {
       const url = domainId ? `/api/quiz/start?domain_id=${domainId}` : `/api/quiz/start`;
@@ -75,6 +82,7 @@ export default function Quizzes() {
       }
 
       resetQuizState();
+      setActiveDomainId(domainId || null);
       setQuestions(data.questions || []);
       setQuizOpen(true);
     } catch (err) {
@@ -121,13 +129,43 @@ export default function Quizzes() {
     });
   };
 
+  async function submitQuizToDb(finalAnswers) {
+    setLogError("");
+
+    try {
+      const res = await fetch("/api/quiz/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain_id: activeDomainId, // null for general, UUID for domain quiz
+          answers: finalAnswers.map((a) => ({
+            question_id: a.question_id,
+            choice_id: a.selected_choice_id,
+          })),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error?.message || "Quiz logging failed.");
+      }
+
+      return true;
+    } catch (e) {
+      setLogError(e.message || "Quiz logging failed.");
+      return false;
+    }
+  }
+
   const nextQuestion = () => {
     const next = currentIndex + 1;
 
     if (next >= questions.length) {
-      // End of quiz -> show results modal, and hide quiz modal
-      setQuizOpen(false);
-      setResultsOpen(true);
+      // End of quiz -> log to DB (only now), then show results
+      submitQuizToDb(answers).finally(() => {
+        setQuizOpen(false);
+        setResultsOpen(true);
+      });
       return;
     }
 
@@ -325,9 +363,7 @@ export default function Quizzes() {
               </button>
             </div>
 
-            <p style={{ margin: "16px 0", lineHeight: 1.5 }}>
-              {currentQuestion.prompt}
-            </p>
+            <p style={{ margin: "16px 0", lineHeight: 1.5 }}>{currentQuestion.prompt}</p>
 
             <div>
               {currentQuestion.choices.map((choice) => {
@@ -380,9 +416,7 @@ export default function Quizzes() {
               </button>
             ) : (
               <div style={{ marginTop: 12 }}>
-                <div style={{ fontWeight: 800, marginBottom: 8 }}>
-                  {isCorrect ? "Correct" : "Incorrect"}
-                </div>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>{isCorrect ? "Correct" : "Incorrect"}</div>
 
                 {!isCorrect ? (
                   <div
@@ -457,6 +491,12 @@ export default function Quizzes() {
               Score: <strong>{score}</strong> / <strong>{questions.length || 25}</strong>
             </div>
 
+            {logError ? (
+              <div style={{ marginTop: 0, marginBottom: 12, color: "#ffb4b4", fontSize: 13 }}>
+                Logging error: {logError}
+              </div>
+            ) : null}
+
             {missedDetails.length === 0 ? (
               <div
                 style={{
@@ -482,9 +522,7 @@ export default function Quizzes() {
                       lineHeight: 1.45,
                     }}
                   >
-                    <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                      Missed #{idx + 1}
-                    </div>
+                    <div style={{ fontWeight: 800, marginBottom: 6 }}>Missed #{idx + 1}</div>
 
                     <div style={{ marginBottom: 8 }}>{m.prompt}</div>
 
@@ -507,7 +545,7 @@ export default function Quizzes() {
               </div>
             )}
 
-            {/* per your requirement: results modal has ONLY a close button */}
+            {/* results modal has ONLY a close button */}
             <button
               onClick={closeAllModals}
               style={{
