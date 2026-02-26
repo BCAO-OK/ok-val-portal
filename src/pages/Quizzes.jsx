@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 export default function Quizzes() {
   const [domains, setDomains] = useState([]);
@@ -14,6 +14,10 @@ export default function Quizzes() {
   const [selectedChoiceId, setSelectedChoiceId] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [isCorrect, setIsCorrect] = useState(null);
+
+  // Results tracking
+  const [answers, setAnswers] = useState([]); // [{question_id, selected_choice_id, is_correct}]
+  const [resultsOpen, setResultsOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -47,6 +51,16 @@ export default function Quizzes() {
     };
   }, []);
 
+  const resetQuizState = () => {
+    setQuestions([]);
+    setCurrentIndex(0);
+    setSelectedChoiceId(null);
+    setSubmitted(false);
+    setIsCorrect(null);
+    setAnswers([]);
+    setResultsOpen(false);
+  };
+
   const startQuiz = async (domainId = null) => {
     setLoadingQuiz(true);
     setError("");
@@ -60,14 +74,8 @@ export default function Quizzes() {
         throw new Error(data?.error?.message || "Failed to start quiz.");
       }
 
+      resetQuizState();
       setQuestions(data.questions || []);
-      setCurrentIndex(0);
-
-      // reset per-quiz state
-      setSelectedChoiceId(null);
-      setSubmitted(false);
-      setIsCorrect(null);
-
       setQuizOpen(true);
     } catch (err) {
       setError(err.message || "Failed to start quiz.");
@@ -76,16 +84,18 @@ export default function Quizzes() {
     }
   };
 
-  const closeQuiz = () => {
+  const closeAllModals = () => {
     setQuizOpen(false);
-    setQuestions([]);
-    setCurrentIndex(0);
-    setSelectedChoiceId(null);
-    setSubmitted(false);
-    setIsCorrect(null);
+    setResultsOpen(false);
+    resetQuizState();
   };
 
   const currentQuestion = questions[currentIndex];
+
+  const correctChoice = useMemo(() => {
+    if (!currentQuestion?.choices) return null;
+    return currentQuestion.choices.find((c) => c.is_correct === true) || null;
+  }, [currentQuestion]);
 
   const submitAnswer = () => {
     if (!currentQuestion || !selectedChoiceId) return;
@@ -96,14 +106,28 @@ export default function Quizzes() {
 
     setIsCorrect(!!correct);
     setSubmitted(true);
+
+    // record answer (only once per question)
+    setAnswers((prev) => {
+      const filtered = prev.filter((a) => a.question_id !== currentQuestion.question_id);
+      return [
+        ...filtered,
+        {
+          question_id: currentQuestion.question_id,
+          selected_choice_id: selectedChoiceId,
+          is_correct: !!correct,
+        },
+      ];
+    });
   };
 
   const nextQuestion = () => {
     const next = currentIndex + 1;
 
     if (next >= questions.length) {
-      // Later we’ll replace this with the final score modal.
-      closeQuiz();
+      // End of quiz -> show results modal, and hide quiz modal
+      setQuizOpen(false);
+      setResultsOpen(true);
       return;
     }
 
@@ -112,6 +136,35 @@ export default function Quizzes() {
     setSubmitted(false);
     setIsCorrect(null);
   };
+
+  const score = useMemo(() => {
+    return answers.reduce((sum, a) => sum + (a.is_correct ? 1 : 0), 0);
+  }, [answers]);
+
+  const missedDetails = useMemo(() => {
+    const byQ = new Map(questions.map((q) => [q.question_id, q]));
+    return answers
+      .filter((a) => a.is_correct === false)
+      .map((a) => {
+        const q = byQ.get(a.question_id);
+        if (!q) return null;
+
+        const correct = (q.choices || []).find((c) => c.is_correct === true) || null;
+        const selected = (q.choices || []).find((c) => c.choice_id === a.selected_choice_id) || null;
+
+        return {
+          question_id: q.question_id,
+          prompt: q.prompt,
+          explanation: q.explanation,
+          citation_text: q.citation_text,
+          correct_choice_label: correct?.choice_label || "",
+          correct_choice_text: correct?.choice_text || "",
+          selected_choice_label: selected?.choice_label || "",
+          selected_choice_text: selected?.choice_text || "",
+        };
+      })
+      .filter(Boolean);
+  }, [answers, questions]);
 
   return (
     <div style={{ padding: 16 }}>
@@ -258,7 +311,7 @@ export default function Quizzes() {
                 Question {currentIndex + 1} of {questions.length}
               </h3>
               <button
-                onClick={closeQuiz}
+                onClick={closeAllModals}
                 style={{
                   padding: "6px 10px",
                   borderRadius: 8,
@@ -366,10 +419,111 @@ export default function Quizzes() {
                     fontWeight: 600,
                   }}
                 >
-                  Next
+                  {currentIndex + 1 === questions.length ? "Finish" : "Next"}
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Results Modal */}
+      {resultsOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1100,
+          }}
+        >
+          <div
+            style={{
+              width: "92%",
+              maxWidth: 820,
+              background: "#111",
+              padding: 22,
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.12)",
+              maxHeight: "85vh",
+              overflow: "auto",
+            }}
+          >
+            <h2 style={{ margin: "0 0 8px" }}>Quiz Complete</h2>
+            <div style={{ opacity: 0.9, marginBottom: 16 }}>
+              Score: <strong>{score}</strong> / <strong>{questions.length || 25}</strong>
+            </div>
+
+            {missedDetails.length === 0 ? (
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.03)",
+                  lineHeight: 1.45,
+                }}
+              >
+                No missed questions. Nice.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 12 }}>
+                {missedDetails.map((m, idx) => (
+                  <div
+                    key={m.question_id}
+                    style={{
+                      padding: 12,
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(255,255,255,0.03)",
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                      Missed #{idx + 1}
+                    </div>
+
+                    <div style={{ marginBottom: 8 }}>{m.prompt}</div>
+
+                    <div style={{ marginBottom: 8 }}>
+                      <span style={{ fontWeight: 700 }}>Correct answer: </span>
+                      {m.correct_choice_label}. {m.correct_choice_text}
+                    </div>
+
+                    <div style={{ marginBottom: 8 }}>
+                      <span style={{ fontWeight: 700 }}>Explanation: </span>
+                      {m.explanation}
+                    </div>
+
+                    <div>
+                      <span style={{ fontWeight: 700 }}>Citation: </span>
+                      {m.citation_text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* per your requirement: results modal has ONLY a close button */}
+            <button
+              onClick={closeAllModals}
+              style={{
+                marginTop: 16,
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.18)",
+                background: "rgba(255,255,255,0.06)",
+                color: "inherit",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
