@@ -31,7 +31,11 @@ async function requireAuth(req) {
   const authResult = await clerk.authenticateRequest(webReq);
 
   if (!authResult?.isAuthenticated) {
-    return { ok: false, status: 401, error: { code: "UNAUTHORIZED", message: "Sign in required." } };
+    return {
+      ok: false,
+      status: 401,
+      error: { code: "UNAUTHORIZED", message: "Sign in required." },
+    };
   }
 
   return { ok: true };
@@ -39,7 +43,9 @@ async function requireAuth(req) {
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
-    return res.status(405).json({ ok: false });
+    return res
+      .status(405)
+      .json({ ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "GET only." } });
   }
 
   const auth = await requireAuth(req);
@@ -56,8 +62,17 @@ export default async function handler(req, res) {
       whereClause = `where q.domain_id = $1`;
     }
 
+    // Pull enough rows to form 25 questions (each question has 4 choices)
+    // We’ll randomize questions by ordering question_id in a random subquery.
     const { rows } = await pool.query(
       `
+      with qpick as (
+        select q.question_id
+        from public.question q
+        ${whereClause}
+        order by random()
+        limit 25
+      )
       select
         q.question_id,
         q.prompt,
@@ -65,17 +80,16 @@ export default async function handler(req, res) {
         q.citation_text,
         c.choice_id,
         c.choice_label,
-        c.choice_text
+        c.choice_text,
+        c.is_correct
       from public.question q
-      join public.choice c
-        on c.question_id = q.question_id
-      ${whereClause}
-      order by random()
+      join qpick qp on qp.question_id = q.question_id
+      join public.choice c on c.question_id = q.question_id
+      order by q.question_id, c.choice_label;
       `,
       params
     );
 
-    // Group by question
     const questionMap = new Map();
 
     for (const row of rows) {
@@ -93,13 +107,11 @@ export default async function handler(req, res) {
         choice_id: row.choice_id,
         choice_label: row.choice_label,
         choice_text: row.choice_text,
+        is_correct: row.is_correct === true,
       });
     }
 
-    const allQuestions = Array.from(questionMap.values());
-
-    // Take first 25
-    const selected = allQuestions.slice(0, 25);
+    const selected = Array.from(questionMap.values());
 
     return res.status(200).json({
       ok: true,
