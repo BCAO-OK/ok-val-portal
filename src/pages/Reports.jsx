@@ -6,6 +6,162 @@ function fmt(n) {
   return Number(n).toFixed(2);
 }
 
+function safeJsonArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return [];
+  }
+}
+
+// 180° Gauge (SVG)
+function Gauge180({ value }) {
+  const v = Math.max(0, Math.min(100, Number(value) || 0));
+
+  const W = 320;
+  const H = 180;
+  const cx = W / 2;
+  const cy = 160;
+  const r = 120;
+
+  const startX = cx - r;
+  const startY = cy;
+  const endX = cx + r;
+  const endY = cy;
+
+  const arcPath = `M ${startX} ${startY} A ${r} ${r} 0 0 1 ${endX} ${endY}`;
+
+  // For stroke-dasharray/dashoffset we need an accurate length.
+  // Semicircle length = πr
+  const L = Math.PI * r;
+  const filled = (v / 100) * L;
+  const dashOffset = L - filled;
+
+  // Theme-ish colors: deep navy -> gold
+  const NAVY = "#0B1F3A";
+  const GOLD = "#D4AF37";
+
+  return (
+    <div style={{ width: "100%", display: "grid", placeItems: "center" }}>
+      <svg
+        width="100%"
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ maxWidth: 420, overflow: "visible" }}
+        role="img"
+        aria-label={`Overall score ${fmt(v)} out of 100`}
+      >
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={NAVY} />
+            <stop offset="100%" stopColor={GOLD} />
+          </linearGradient>
+          <filter id="softGlow" x="-20%" y="-50%" width="140%" height="160%">
+            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Track */}
+        <path
+          d={arcPath}
+          fill="none"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="18"
+          strokeLinecap="round"
+        />
+
+        {/* Progress */}
+        <path
+          d={arcPath}
+          fill="none"
+          stroke="url(#gaugeGrad)"
+          strokeWidth="18"
+          strokeLinecap="round"
+          strokeDasharray={L}
+          strokeDashoffset={dashOffset}
+          filter="url(#softGlow)"
+        />
+
+        {/* Value */}
+        <text
+          x={cx}
+          y={cy - 30}
+          textAnchor="middle"
+          style={{ fontSize: 40, fontWeight: 900, fill: "white" }}
+        >
+          {fmt(v)}
+        </text>
+        <text
+          x={cx}
+          y={cy - 6}
+          textAnchor="middle"
+          style={{ fontSize: 12, fill: "rgba(255,255,255,0.65)" }}
+        >
+          Overall (weighted)
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function Modal({ title, subtitle, onClose, children }) {
+  // OPAQUE modal panel + stronger overlay, so underlying page doesn't show through.
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.82)",
+        display: "grid",
+        placeItems: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(880px, 100%)",
+          borderRadius: 16,
+          border: "1px solid rgba(255,255,255,0.10)",
+          background: "rgba(10, 16, 28, 0.98)", // <- key fix: opaque panel
+          boxShadow: "0 20px 70px rgba(0,0,0,0.55)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: 16,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+            {subtitle ? (
+              <div style={{ color: TEXT_DIM, marginTop: 4, fontSize: 12 }}>
+                {subtitle}
+              </div>
+            ) : null}
+          </div>
+          <GhostButton onClick={onClose}>Close</GhostButton>
+        </div>
+
+        <div style={{ padding: 16 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -40,17 +196,7 @@ export default function Reports() {
   }, []);
 
   const my = data?.my_report || null;
-  const myDomains = useMemo(() => {
-    const ds = my?.domain_scores;
-    if (!ds) return [];
-    if (Array.isArray(ds)) return ds;
-    // in case it comes back as JSON string
-    try {
-      return JSON.parse(ds);
-    } catch {
-      return [];
-    }
-  }, [my]);
+  const myDomains = useMemo(() => safeJsonArray(my?.domain_scores), [my]);
 
   const users = data?.users || [];
   const scope = data?.scope || "self";
@@ -80,46 +226,43 @@ export default function Reports() {
   return (
     <div style={{ padding: 24, display: "grid", gap: 16 }}>
       <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>My Results</div>
-            <div style={{ color: TEXT_DIM, marginTop: 4 }}>
-              {data?.me?.display_name || ""}
-            </div>
-          </div>
-
-          <div style={{ textAlign: "right" }}>
-            <div style={{ color: TEXT_DIM, fontSize: 12 }}>Overall (weighted)</div>
-            <div style={{ fontWeight: 900, fontSize: 28 }}>
-              {fmt(my?.overall_weighted_score)}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 16, color: TEXT_DIM, fontSize: 12 }}>
-          Domain scores
-        </div>
-
-        <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
-          {myDomains.length === 0 ? (
-            <div style={{ color: TEXT_DIM }}>No domain data yet.</div>
-          ) : (
-            myDomains.map((d) => (
-              <div
-                key={d.domain_id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  borderTop: "1px solid rgba(255,255,255,0.08)",
-                  paddingTop: 8,
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>{d.domain_name}</div>
-                <div style={{ color: TEXT_DIM }}>{fmt(d.weighted_score)}</div>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>My Results</div>
+              <div style={{ color: TEXT_DIM, marginTop: 4 }}>
+                {data?.me?.display_name || ""}
               </div>
-            ))
-          )}
+            </div>
+          </div>
+
+          <Gauge180 value={my?.overall_weighted_score} />
+
+          <div style={{ color: TEXT_DIM, fontSize: 12, marginTop: 4 }}>
+            Domain scores
+          </div>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            {myDomains.length === 0 ? (
+              <div style={{ color: TEXT_DIM }}>No domain data yet.</div>
+            ) : (
+              myDomains.map((d) => (
+                <div
+                  key={d.domain_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    paddingTop: 8,
+                  }}
+                >
+                  <div style={{ fontWeight: 700 }}>{d.domain_name}</div>
+                  <div style={{ color: TEXT_DIM }}>{fmt(d.weighted_score)}</div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </Card>
 
@@ -165,77 +308,35 @@ export default function Reports() {
       )}
 
       {openUser && (
-        <div
-          onClick={() => setOpenUser(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.65)",
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-            zIndex: 9999,
-          }}
+        <Modal
+          title={openUser.display_name}
+          subtitle={`${openUser.organization_name} • ${openUser.membership_role_code}`}
+          onClose={() => setOpenUser(null)}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: "min(720px, 100%)" }}
-          >
-            <Card>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 900, fontSize: 18 }}>
-                    {openUser.display_name}
-                  </div>
-                  <div style={{ color: TEXT_DIM, marginTop: 4, fontSize: 12 }}>
-                    {openUser.organization_name} • {openUser.membership_role_code}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ color: TEXT_DIM, fontSize: 12 }}>Overall (weighted)</div>
-                  <div style={{ fontWeight: 900, fontSize: 28 }}>
-                    {fmt(openUser.overall_weighted_score)}
-                  </div>
-                </div>
-              </div>
+          <Gauge180 value={openUser.overall_weighted_score} />
 
-              <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
-                <GhostButton onClick={() => setOpenUser(null)}>Close</GhostButton>
-              </div>
-
-              <div style={{ marginTop: 12, color: TEXT_DIM, fontSize: 12 }}>
-                Domain scores
-              </div>
-
-              <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
-                {(Array.isArray(openUser.domain_scores)
-                  ? openUser.domain_scores
-                  : (() => {
-                    try {
-                      return JSON.parse(openUser.domain_scores || "[]");
-                    } catch {
-                      return [];
-                    }
-                  })()
-                ).map((d) => (
-                  <div
-                    key={d.domain_id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      borderTop: "1px solid rgba(255,255,255,0.08)",
-                      paddingTop: 8,
-                    }}
-                  >
-                    <div style={{ fontWeight: 700 }}>{d.domain_name}</div>
-                    <div style={{ color: TEXT_DIM }}>{fmt(d.weighted_score)}</div>
-                  </div>
-                ))}
-              </div>
-            </Card>
+          <div style={{ color: TEXT_DIM, fontSize: 12, marginTop: 8 }}>
+            Domain scores
           </div>
-        </div>
+
+          <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+            {safeJsonArray(openUser.domain_scores).map((d) => (
+              <div
+                key={d.domain_id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  paddingTop: 8,
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>{d.domain_name}</div>
+                <div style={{ color: TEXT_DIM }}>{fmt(d.weighted_score)}</div>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   );
