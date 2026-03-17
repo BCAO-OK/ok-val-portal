@@ -37,15 +37,15 @@ async function getActor(client, clerkUserId) {
   const { rows: userRows } = await client.query(
     `
     select
-      user_id,
-      clerk_user_id,
-      email,
-      display_name,
-      active_organization_id,
-      organization_id,
-      is_active
-    from public.app_user
-    where clerk_user_id = $1
+      u.user_id,
+      u.clerk_user_id,
+      u.email,
+      u.display_name,
+      u.active_organization_id,
+      u.organization_id,
+      u.is_active
+    from public.app_user u
+    where u.clerk_user_id = $1
     limit 1
     `,
     [clerkUserId]
@@ -136,7 +136,7 @@ export default async function handler(req, res) {
         error: { code: "UNAUTHORIZED", message: "Invalid token" },
       });
     }
-  } catch (e) {
+  } catch {
     return res.status(401).json({
       ok: false,
       error: { code: "UNAUTHORIZED", message: "Invalid token" },
@@ -318,7 +318,10 @@ export default async function handler(req, res) {
 
     const approvedRole = roleRows[0];
 
-    if (!actor.is_system_admin && String(approvedRole.role_code || "").toLowerCase() === "system_admin") {
+    if (
+      !actor.is_system_admin &&
+      String(approvedRole.role_code || "").toLowerCase() === "system_admin"
+    ) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         ok: false,
