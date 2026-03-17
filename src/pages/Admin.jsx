@@ -34,9 +34,59 @@ export default function Admin({ me, getToken, onRefresh }) {
   const [requests, setRequests] = useState([]);
   const [roles, setRoles] = useState([]);
 
+  // USERS MODULE
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersErr, setUsersErr] = useState("");
+  const [usersData, setUsersData] = useState({ organizations: [], unassigned: [] });
+  const [orgsForTransfer, setOrgsForTransfer] = useState([]);
+
+  // Modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editUser, setEditUser] = useState(null); // { user_id, ... membership/org info }
+  const [editWorking, setEditWorking] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editRoleId, setEditRoleId] = useState("");
+  const [editTransferOrgId, setEditTransferOrgId] = useState("");
+
   // Per-request selection
   const [selectedRoleByRequestId, setSelectedRoleByRequestId] = useState({});
   const [actionState, setActionState] = useState({}); // requestId -> {status, error}
+
+  async function loadUsers() {
+    try {
+      setUsersLoading(true);
+      setUsersErr("");
+
+      // IMPORTANT: /api/org-users uses Clerk cookie auth (like org-requests-pending.js)
+      // so we intentionally use plain fetch (same-origin cookies automatically included).
+      const resp = await fetch("/api/org-users", { method: "GET" });
+      const body = await resp.json();
+
+      if (!resp.ok || !body?.ok) {
+        throw new Error(body?.error?.message || "Failed to load users");
+      }
+
+      setUsersData(body.data || { organizations: [], unassigned: [] });
+      setUsersLoading(false);
+    } catch (e) {
+      setUsersLoading(false);
+      setUsersErr(String(e?.message || e));
+    }
+  }
+
+  async function loadTransferOrganizationsIfNeeded() {
+    if (!isSystemAdmin) return;
+    try {
+      // /api/organizations uses Bearer token verifyToken, so we keep using apiFetch/getToken
+      const orgResp = await apiFetch(getToken, "/api/organizations");
+      setOrgsForTransfer(orgResp?.data || []);
+    } catch (e) {
+      // Don't block Admin if org list fails; only impacts transfer dropdown.
+      setOrgsForTransfer([]);
+    }
+  }
 
   async function loadAll() {
     try {
@@ -68,9 +118,16 @@ export default function Admin({ me, getToken, onRefresh }) {
 
       setSelectedRoleByRequestId((prev) => ({ ...defaults, ...prev }));
       setLoading(false);
+
+      // Users module loads alongside
+      await Promise.all([loadUsers(), loadTransferOrganizationsIfNeeded()]);
     } catch (e) {
       setLoading(false);
       setErr(String(e?.message || e));
+      // still try users load so the page isn't dead if pending fails
+      try {
+        await Promise.all([loadUsers(), loadTransferOrganizationsIfNeeded()]);
+      } catch { }
     }
   }
 
@@ -87,6 +144,14 @@ export default function Admin({ me, getToken, onRefresh }) {
       code: norm(r.role_code),
     }));
   }, [roles]);
+
+  const orgOptions = useMemo(() => {
+    return (orgsForTransfer || []).map((o) => ({
+      id: o.organization_id,
+      label: o.organization_name,
+      typeCode: o.organization_type_code,
+    }));
+  }, [orgsForTransfer]);
 
   async function decide(requestId, decision) {
     try {
@@ -132,6 +197,131 @@ export default function Admin({ me, getToken, onRefresh }) {
     }
   }
 
+  function openEdit(user, orgCtx) {
+    // user is a flattened object from /api/org-users
+    // orgCtx: { organization_id, organization_name }
+    setEditError("");
+    setEditWorking(false);
+    setEditUser({
+      ...user,
+      organization_id: orgCtx?.organization_id || user.organization_id || null,
+      organization_name: orgCtx?.organization_name || user.organization_name || null,
+    });
+
+    setEditDisplayName(user.display_name || "");
+    setEditRoleId(user.membership_role_id || "");
+    setEditTransferOrgId(""); // only used by system_admin
+
+    setEditOpen(true);
+  }
+
+  function closeEdit() {
+    setEditOpen(false);
+    setEditUser(null);
+    setEditDisplayName("");
+    setEditRoleId("");
+    setEditTransferOrgId("");
+    setEditWorking(false);
+    setEditError("");
+  }
+
+  async function saveEdit() {
+    if (!editUser?.user_id) return;
+
+    try {
+      setEditWorking(true);
+      setEditError("");
+
+      const payload = {
+        user_id: editUser.user_id,
+      };
+
+      // Update display_name (optional)
+      if (typeof editDisplayName === "string") {
+        payload.display_name = editDisplayName.trim();
+      }
+
+      // Update membership role (optional)
+      if (editRoleId) {
+        payload.role_id = editRoleId;
+      }
+
+      // For system admin, pass org for accuracy (especially when grouped)
+      if (isSystemAdmin && editUser.organization_id) {
+        payload.organization_id = editUser.organization_id;
+      }
+
+      // Transfer (system_admin only)
+      if (isSystemAdmin && editTransferOrgId) {
+        payload.transfer_to_organization_id = editTransferOrgId;
+      }
+
+      const resp = await fetch("/api/org-users-update", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const body = await resp.json();
+      if (!resp.ok || !body?.ok) {
+        throw new Error(body?.error?.message || "Failed to save user");
+      }
+
+      // Refresh users (and me, in case the actor did something that affects context)
+      await loadUsers();
+      await onRefresh?.();
+
+      setEditWorking(false);
+      closeEdit();
+    } catch (e) {
+      setEditWorking(false);
+      setEditError(String(e?.message || e));
+    }
+  }
+
+  async function removeUserFromOrg() {
+    if (!editUser?.user_id) return;
+    if (!editUser?.organization_id && isSystemAdmin) {
+      setEditError("Missing organization context for removal.");
+      return;
+    }
+
+    try {
+      setEditWorking(true);
+      setEditError("");
+
+      const payload = {
+        user_id: editUser.user_id,
+        deactivation_reason: "Removed from organization",
+      };
+
+      // For system_admin we include org explicitly
+      if (isSystemAdmin && editUser.organization_id) {
+        payload.organization_id = editUser.organization_id;
+      }
+
+      const resp = await fetch("/api/org-users-deactivate", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const body = await resp.json();
+      if (!resp.ok || !body?.ok) {
+        throw new Error(body?.error?.message || "Failed to remove user");
+      }
+
+      await loadUsers();
+      await onRefresh?.();
+
+      setEditWorking(false);
+      closeEdit();
+    } catch (e) {
+      setEditWorking(false);
+      setEditError(String(e?.message || e));
+    }
+  }
+
   if (!canUseAdmin) {
     return (
       <div style={{ display: "grid", gap: 14 }}>
@@ -169,6 +359,7 @@ export default function Admin({ me, getToken, onRefresh }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {/* Header */}
       <div
         style={{
           display: "flex",
@@ -225,6 +416,7 @@ export default function Admin({ me, getToken, onRefresh }) {
         </GhostButton>
       </div>
 
+      {/* Pending Requests */}
       <Card
         title="Pending organization requests"
         subtitle="Assessor/Director can approve requests for their active organization. SYSTEM_ADMIN can approve any."
@@ -386,6 +578,399 @@ export default function Admin({ me, getToken, onRefresh }) {
           </div>
         )}
       </Card>
+
+      {/* USERS MODULE (directly below pending requests) */}
+      <Card
+        title="Users"
+        subtitle={
+          isSystemAdmin
+            ? "SYSTEM_ADMIN: View users grouped by organization. Edit roles, names, and transfer organizations."
+            : "Assessor/Director: View and manage users within your active organization."
+        }
+      >
+        {usersLoading ? (
+          <Pill tone="warn">
+            <Icon name="dot" /> Loading…
+          </Pill>
+        ) : usersErr ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <Pill tone="bad">
+              <Icon name="dot" /> Failed to load users
+            </Pill>
+            <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.5 }}>
+              {usersErr}
+            </div>
+            <GhostButton
+              onClick={loadUsers}
+              icon={<Icon name="refresh" />}
+              ariaLabel="Refresh users"
+            >
+              Retry
+            </GhostButton>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {(usersData.organizations || []).length === 0 ? (
+              <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>
+                No users found.
+              </div>
+            ) : (
+              (usersData.organizations || []).map((org) => {
+                const orgName = org.organization_name || "—";
+                const users = org.users || [];
+
+                return (
+                  <div
+                    key={org.organization_id || orgName}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      borderRadius: 16,
+                      padding: 12,
+                      background: "rgba(255,255,255,0.02)",
+                      display: "grid",
+                      gap: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <Pill>
+                          <Icon name="dot" /> {orgName}
+                        </Pill>
+                        <Pill>
+                          <Icon name="dot" /> {users.length} user{users.length === 1 ? "" : "s"}
+                        </Pill>
+                      </div>
+
+                      <GhostButton
+                        onClick={loadUsers}
+                        icon={<Icon name="refresh" />}
+                        ariaLabel="Refresh users"
+                      >
+                        Refresh
+                      </GhostButton>
+                    </div>
+
+                    {users.length === 0 ? (
+                      <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>
+                        No users in this organization.
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {users.map((u) => (
+                          <div
+                            key={`${org.organization_id || "org"}:${u.user_id}`}
+                            style={{
+                              border: "1px solid rgba(255,255,255,0.10)",
+                              borderRadius: 16,
+                              padding: 12,
+                              background: "rgba(0,0,0,0.20)",
+                              display: "grid",
+                              gap: 10,
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                <Pill>
+                                  <Icon name="dot" /> {u.display_name || "—"}
+                                </Pill>
+                                <Pill>
+                                  <Icon name="dot" /> {u.email || "—"}
+                                </Pill>
+                                <Pill>
+                                  <Icon name="dot" /> {u.membership_role_code || "—"}
+                                </Pill>
+
+                                {u.membership_is_active === false ? (
+                                  <Pill tone="bad">
+                                    <Icon name="dot" /> inactive
+                                  </Pill>
+                                ) : (
+                                  <Pill tone="ok">
+                                    <Icon name="dot" /> active
+                                  </Pill>
+                                )}
+                              </div>
+
+                              <GhostButton
+                                onClick={() => openEdit(u, org)}
+                                icon={<Icon name="edit" />}
+                                ariaLabel="Edit user"
+                              >
+                                Edit
+                              </GhostButton>
+                            </div>
+
+                            {u.deactivated_at ? (
+                              <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.45 }}>
+                                Deactivated: {String(u.deactivated_at)}{" "}
+                                {u.deactivation_reason ? `— ${u.deactivation_reason}` : ""}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+
+            {/* Optional: show unassigned bucket only for system admin */}
+            {isSystemAdmin && (usersData.unassigned || []).length > 0 ? (
+              <div
+                style={{
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  borderRadius: 16,
+                  padding: 12,
+                  background: "rgba(255,255,255,0.02)",
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <Pill>
+                    <Icon name="dot" /> Unassigned
+                  </Pill>
+                  <Pill>
+                    <Icon name="dot" /> {(usersData.unassigned || []).length} user
+                    {(usersData.unassigned || []).length === 1 ? "" : "s"}
+                  </Pill>
+                </div>
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(usersData.unassigned || []).map((u) => (
+                    <div
+                      key={`unassigned:${u.user_id}`}
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.10)",
+                        borderRadius: 16,
+                        padding: 12,
+                        background: "rgba(0,0,0,0.20)",
+                        display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <Pill>
+                          <Icon name="dot" /> {u.display_name || "—"}
+                        </Pill>
+                        <Pill>
+                          <Icon name="dot" /> {u.email || "—"}
+                        </Pill>
+                        <Pill tone="warn">
+                          <Icon name="dot" /> no org membership
+                        </Pill>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </Card>
+
+      {/* EDIT MODAL */}
+      {editOpen && editUser ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "rgba(0,0,0,0.72)",   // CHANGED (darker)
+            backdropFilter: "blur(4px)",       // CHANGED (subtle blur)
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+          }}
+          onMouseDown={(e) => {
+            // click outside closes
+            if (e.target === e.currentTarget) closeEdit();
+          }}
+        >
+          <div style={{ width: "min(720px, 100%)" }}>
+            {/* CHANGED: add solid surface wrapper */}
+            <div
+              style={{
+                borderRadius: 18,
+                background: "rgba(15, 15, 15, 0.92)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
+                overflow: "hidden",
+              }}
+            >
+              <Card
+                title="Edit user"
+                subtitle="Update display name, membership role, and (SYSTEM_ADMIN) transfer organization. Email is managed by Clerk."
+              >
+                <div style={{ display: "grid", gap: 12 }}>
+                  {/* Snapshot pills */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <Pill>
+                      <Icon name="dot" /> {editUser.display_name || "—"}
+                    </Pill>
+                    <Pill>
+                      <Icon name="dot" /> {editUser.email || "—"}
+                    </Pill>
+                    {editUser.organization_name ? (
+                      <Pill>
+                        <Icon name="dot" /> {editUser.organization_name}
+                      </Pill>
+                    ) : null}
+                    {editUser.membership_role_code ? (
+                      <Pill>
+                        <Icon name="dot" /> {editUser.membership_role_code}
+                      </Pill>
+                    ) : null}
+                  </div>
+
+                  {/* Display name */}
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>
+                      Display name
+                    </div>
+                    <input
+                      value={editDisplayName}
+                      onChange={(e) => setEditDisplayName(e.target.value)}
+                      placeholder="Display name"
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(255,255,255,0.14)",
+                        background: "rgba(0,0,0,0.25)",
+                        color: "white",
+                        outline: "none",
+                      }}
+                    />
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.45 }}>
+                      Email updates are managed by Clerk. This updates your local display label only.
+                    </div>
+                  </div>
+
+                  {/* Role select */}
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>
+                      Membership role
+                    </div>
+                    <select
+                      value={editRoleId}
+                      onChange={(e) => setEditRoleId(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(255,255,255,0.14)",
+                        background: "rgba(0,0,0,0.25)",
+                        color: "white",
+                        outline: "none",
+                      }}
+                    >
+                      {roleOptions.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.45 }}>
+                      Your governance rule is enforced: only one active Assessor/Director per organization.
+                    </div>
+                  </div>
+
+                  {/* Transfer org (SYSTEM_ADMIN only) */}
+                  {isSystemAdmin ? (
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <div style={{ fontSize: 12, color: TEXT_DIM_2, fontWeight: 900 }}>
+                        Transfer to organization (SYSTEM_ADMIN)
+                      </div>
+                      <select
+                        value={editTransferOrgId}
+                        onChange={(e) => setEditTransferOrgId(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(255,255,255,0.14)",
+                          background: "rgba(0,0,0,0.25)",
+                          color: "white",
+                          outline: "none",
+                        }}
+                      >
+                        <option value="">(No transfer)</option>
+                        {orgOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div style={{ fontSize: 12, color: TEXT_DIM_2, lineHeight: 1.45 }}>
+                        Transfer will deactivate other active memberships for this user and activate the destination.
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Errors */}
+                  {editError ? (
+                    <Pill tone="bad">
+                      <Icon name="dot" /> {editError}
+                    </Pill>
+                  ) : null}
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <GhostButton
+                      onClick={saveEdit}
+                      icon={<Icon name="check" />}
+                      ariaLabel="Save user"
+                      disabled={editWorking}
+                    >
+                      {editWorking ? "Working…" : "Save"}
+                    </GhostButton>
+
+                    <GhostButton
+                      onClick={removeUserFromOrg}
+                      icon={<Icon name="x" />}
+                      ariaLabel="Remove user from organization"
+                      disabled={editWorking}
+                    >
+                      Remove from org
+                    </GhostButton>
+
+                    <GhostButton
+                      onClick={closeEdit}
+                      icon={<Icon name="x" />}
+                      ariaLabel="Close modal"
+                      disabled={editWorking}
+                    >
+                      Close
+                    </GhostButton>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
