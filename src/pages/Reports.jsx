@@ -1,448 +1,407 @@
-// api/org-requests-decide.js
-import pkg from "pg";
-import { verifyToken } from "@clerk/backend";
+// src/pages/Reports.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { Card, TEXT_DIM, GhostButton } from "../components/ui/UI";
 
-const { Pool } = pkg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
-function getBearerToken(req) {
-  const authHeader =
-    req.headers["authorization"] || req.headers["Authorization"] || "";
-  if (typeof authHeader !== "string") return null;
-
-  const m = authHeader.match(/^Bearer\s+(.+)$/i);
-  return m?.[1] || null;
+function fmt(n) {
+  if (n == null || Number.isNaN(Number(n))) return "0.00";
+  return Number(n).toFixed(2);
 }
 
-function parseJsonBody(req) {
-  let body = req.body;
-
-  if (typeof body === "string") {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      body = {};
-    }
-  }
-
-  if (!body || typeof body !== "object") body = {};
-  return body;
-}
-
-async function getActor(client, clerkUserId) {
-  const { rows: userRows } = await client.query(
-    `
-    select
-      u.user_id,
-      u.clerk_user_id,
-      u.email,
-      u.display_name,
-      u.active_organization_id,
-      u.organization_id,
-      u.is_active
-    from public.app_user u
-    where u.clerk_user_id = $1
-    limit 1
-    `,
-    [clerkUserId]
-  );
-
-  if (userRows.length === 0) return null;
-
-  const actor = userRows[0];
-
-  const { rows: globalRoleRows } = await client.query(
-    `
-    select r.role_code
-    from public.user_role ur
-    join public.role r on r.role_id = ur.role_id
-    where ur.user_id = $1
-    order by r.role_rank desc, r.role_code asc
-    limit 1
-    `,
-    [actor.user_id]
-  );
-
-  const global_role_code = String(globalRoleRows[0]?.role_code || "").toLowerCase();
-  const is_system_admin = global_role_code === "system_admin";
-
-  let membership_role_code = null;
-
-  if (actor.active_organization_id) {
-    const { rows: memRows } = await client.query(
-      `
-      select r.role_code
-      from public.user_organization_membership uom
-      join public.role r on r.role_id = uom.role_id
-      where uom.user_id = $1
-        and uom.organization_id = $2
-        and uom.is_active = true
-      limit 1
-      `,
-      [actor.user_id, actor.active_organization_id]
-    );
-
-    membership_role_code = String(memRows[0]?.role_code || "").toLowerCase() || null;
-  }
-
-  const can_admin_active_org =
-    is_system_admin ||
-    membership_role_code === "assessor" ||
-    membership_role_code === "director";
-
-  return {
-    ...actor,
-    global_role_code,
-    membership_role_code,
-    is_system_admin,
-    can_admin_active_org,
-  };
-}
-
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      ok: false,
-      error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" },
-    });
-  }
-
-  const token = getBearerToken(req);
-  if (!token) {
-    return res.status(401).json({
-      ok: false,
-      error: { code: "UNAUTHORIZED", message: "Missing Bearer token" },
-    });
-  }
-
-  let clerkUserId = null;
+function safeJsonArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
   try {
-    const verified = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY,
-      authorizedParties: [
-        "https://ok-val-portal.vercel.app",
-        "http://localhost:5173",
-      ],
-    });
-
-    clerkUserId = verified?.sub || null;
-    if (!clerkUserId) {
-      return res.status(401).json({
-        ok: false,
-        error: { code: "UNAUTHORIZED", message: "Invalid token" },
-      });
-    }
+    return JSON.parse(v);
   } catch {
-    return res.status(401).json({
-      ok: false,
-      error: { code: "UNAUTHORIZED", message: "Invalid token" },
-    });
+    return [];
+  }
+}
+
+// 180° Gauge (SVG)
+function Gauge180({ value }) {
+  const v = Math.max(0, Math.min(100, Number(value) || 0));
+
+  const W = 320;
+  const H = 180;
+  const cx = W / 2;
+  const cy = 160;
+  const r = 120;
+
+  const startX = cx - r;
+  const startY = cy;
+  const endX = cx + r;
+  const endY = cy;
+
+  const arcPath = `M ${startX} ${startY} A ${r} ${r} 0 0 1 ${endX} ${endY}`;
+
+  // Semicircle length = πr
+  const L = Math.PI * r;
+  const filled = (v / 100) * L;
+  const dashOffset = L - filled;
+
+  // Theme-ish colors: deep navy -> gold
+  const NAVY = "#0B1F3A";
+  const GOLD = "#D4AF37";
+
+  return (
+    <div style={{ width: "100%", display: "grid", placeItems: "center" }}>
+      <svg
+        width="100%"
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ maxWidth: 420, overflow: "visible" }}
+        role="img"
+        aria-label={`Overall score ${fmt(v)} out of 100`}
+      >
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={NAVY} />
+            <stop offset="100%" stopColor={GOLD} />
+          </linearGradient>
+          <filter id="softGlow" x="-20%" y="-50%" width="140%" height="160%">
+            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Track */}
+        <path
+          d={arcPath}
+          fill="none"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="18"
+          strokeLinecap="round"
+        />
+
+        {/* Progress */}
+        <path
+          d={arcPath}
+          fill="none"
+          stroke="url(#gaugeGrad)"
+          strokeWidth="18"
+          strokeLinecap="round"
+          strokeDasharray={L}
+          strokeDashoffset={dashOffset}
+          filter="url(#softGlow)"
+        />
+
+        {/* Value */}
+        <text
+          x={cx}
+          y={cy - 30}
+          textAnchor="middle"
+          style={{ fontSize: 40, fontWeight: 900, fill: "white" }}
+        >
+          {fmt(v)}
+        </text>
+        <text
+          x={cx}
+          y={cy - 6}
+          textAnchor="middle"
+          style={{ fontSize: 12, fill: "rgba(255,255,255,0.65)" }}
+        >
+          Overall (weighted)
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function MiniDomainBar({ value }) {
+  const v = Math.max(0, Math.min(100, Number(value) || 0));
+  const NAVY = "#0B1F3A";
+  const GOLD = "#D4AF37";
+
+  return (
+    <div
+      style={{
+        width: 160,
+        height: 12,
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.10)",
+        overflow: "hidden",
+        border: "1px solid rgba(255,255,255,0.10)",
+      }}
+      aria-label={`Domain score ${fmt(v)} out of 100`}
+      title={`${fmt(v)}`}
+    >
+      <div
+        style={{
+          width: `${v}%`,
+          height: "100%",
+          borderRadius: 999,
+          background: `linear-gradient(90deg, ${NAVY}, ${GOLD})`,
+        }}
+      />
+    </div>
+  );
+}
+
+function Modal({ title, subtitle, onClose, children }) {
+  // OPAQUE modal panel + stronger overlay, so underlying page doesn't show through.
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.82)",
+        display: "grid",
+        placeItems: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(880px, 100%)",
+          borderRadius: 16,
+          border: "1px solid rgba(255,255,255,0.10)",
+          background: "rgba(10, 16, 28, 0.98)", // <- key fix: opaque panel
+          boxShadow: "0 20px 70px rgba(0,0,0,0.55)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: 16,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+            {subtitle ? (
+              <div style={{ color: TEXT_DIM, marginTop: 4, fontSize: 12 }}>
+                {subtitle}
+              </div>
+            ) : null}
+          </div>
+          <GhostButton onClick={onClose}>Close</GhostButton>
+        </div>
+
+        <div style={{ padding: 16 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export default function Reports() {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [data, setData] = useState(null);
+
+  const [openUser, setOpenUser] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setErr("");
+        const res = await fetch("/api/reports");
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error || "Failed to load reports");
+        if (!alive) return;
+        setData(j);
+      } catch (e) {
+        if (!alive) return;
+        setErr(e.message || "Error");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const my = data?.my_report || null;
+  const myDomains = useMemo(() => safeJsonArray(my?.domain_scores), [my]);
+
+  const users = data?.users || [];
+  const scope = data?.scope || "self";
+
+  if (loading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ color: TEXT_DIM }}>Loading reports…</div>
+      </div>
+    );
   }
 
-  const body = parseJsonBody(req);
-
-  const request_id = body.request_id || body.requestId || null;
-  const approved_role_id = body.approved_role_id || body.approvedRoleId || null;
-  const decision = String(body.decision || "").trim().toLowerCase();
-  const decision_note = body.decision_note || body.decisionNote || null;
-
-  if (!request_id || !decision) {
-    return res.status(400).json({
-      ok: false,
-      error: {
-        code: "VALIDATION_ERROR",
-        message: "request_id and decision are required",
-      },
-    });
+  if (err) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Card>
+          <div style={{ fontWeight: 800, marginBottom: 8 }}>Reports</div>
+          <div style={{ color: TEXT_DIM, marginBottom: 12 }}>
+            Error loading reports:
+          </div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{err}</div>
+        </Card>
+      </div>
+    );
   }
 
-  if (!["approve", "reject"].includes(decision)) {
-    return res.status(400).json({
-      ok: false,
-      error: {
-        code: "VALIDATION_ERROR",
-        message: "decision must be approve or reject",
-      },
-    });
-  }
+  return (
+    <div style={{ padding: 24, display: "grid", gap: 16 }}>
+      <Card>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>My Results</div>
+              <div style={{ color: TEXT_DIM, marginTop: 4 }}>
+                {data?.me?.display_name || ""}
+              </div>
+            </div>
+          </div>
 
-  if (decision === "approve" && !approved_role_id) {
-    return res.status(400).json({
-      ok: false,
-      error: {
-        code: "VALIDATION_ERROR",
-        message: "approved_role_id is required for approval",
-      },
-    });
-  }
+          <Gauge180 value={my?.overall_weighted_score} />
 
-  const client = await pool.connect();
+          <div style={{ color: TEXT_DIM, fontSize: 12, marginTop: 4 }}>
+            Domain scores
+          </div>
 
-  try {
-    await client.query("BEGIN");
+          <div style={{ display: "grid", gap: 8 }}>
+            {myDomains.length === 0 ? (
+              <div style={{ color: TEXT_DIM }}>No domain data yet.</div>
+            ) : (
+              myDomains.map((d) => (
+                <div
+                  key={d.domain_id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto auto",
+                    alignItems: "center",
+                    gap: 12,
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    paddingTop: 8,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {d.domain_name}
+                    </span>
+                  </div>
 
-    const actor = await getActor(client, clerkUserId);
+                  <MiniDomainBar value={d.weighted_score} />
 
-    if (!actor) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        error: { code: "NOT_FOUND", message: "App user not found" },
-      });
-    }
+                  <div style={{ color: TEXT_DIM, width: 70, textAlign: "right" }}>
+                    {fmt(d.weighted_score)}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </Card>
 
-    if (!actor.is_active) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        ok: false,
-        error: { code: "FORBIDDEN", message: "User is inactive" },
-      });
-    }
+      {(scope === "org" || scope === "all") && (
+        <Card>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>
+            {scope === "all" ? "All Users" : "Organization Users"}
+          </div>
+          <div style={{ color: TEXT_DIM, marginTop: 4 }}>
+            Click a user to view full details
+          </div>
 
-    if (!actor.can_admin_active_org) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        ok: false,
-        error: { code: "FORBIDDEN", message: "Not authorized to decide requests" },
-      });
-    }
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            {users.map((u) => (
+              <button
+                key={`${u.organization_id}-${u.user_id}`}
+                onClick={() => setOpenUser(u)}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 12,
+                  padding: 12,
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 800 }}>{u.display_name}</div>
+                    <div style={{ color: TEXT_DIM, fontSize: 12, marginTop: 2 }}>
+                      {scope === "all"
+                        ? `${u.organization_name} • ${u.membership_role_code}`
+                        : `${u.membership_role_code}`}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 900 }}>{fmt(u.overall_weighted_score)}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
-    const { rows: reqRows } = await client.query(
-      `
-      select
-        r.request_id,
-        r.requester_user_id,
-        r.requested_organization_id,
-        r.requested_role_id,
-        r.approved_role_id,
-        r.status
-      from public.organization_membership_request r
-      where r.request_id = $1
-      for update
-      `,
-      [request_id]
-    );
+      {openUser && (
+        <Modal
+          title={openUser.display_name}
+          subtitle={`${openUser.organization_name} • ${openUser.membership_role_code}`}
+          onClose={() => setOpenUser(null)}
+        >
+          <Gauge180 value={openUser.overall_weighted_score} />
 
-    if (reqRows.length === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        error: { code: "NOT_FOUND", message: "Request not found" },
-      });
-    }
+          <div style={{ color: TEXT_DIM, fontSize: 12, marginTop: 8 }}>
+            Domain scores
+          </div>
 
-    const reqRow = reqRows[0];
-    const requestStatus = String(reqRow.status || "").toLowerCase();
+          <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+            {safeJsonArray(openUser.domain_scores).map((d) => (
+              <div
+                key={d.domain_id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto auto",
+                  alignItems: "center",
+                  gap: 12,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  paddingTop: 8,
+                }}
+              >
+                <div style={{ fontWeight: 700, minWidth: 0 }}>
+                  <span
+                    style={{
+                      display: "block",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {d.domain_name}
+                  </span>
+                </div>
 
-    if (requestStatus !== "pending") {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        error: { code: "NOT_PENDING", message: "Request is not pending" },
-      });
-    }
+                <MiniDomainBar value={d.weighted_score} />
 
-    const targetOrgId = reqRow.requested_organization_id;
-
-    const actorCanApproveThis =
-      actor.is_system_admin ||
-      (
-        !!actor.active_organization_id &&
-        actor.active_organization_id === targetOrgId &&
-        ["assessor", "director"].includes(String(actor.membership_role_code || "").toLowerCase())
-      );
-
-    if (!actorCanApproveThis) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        ok: false,
-        error: {
-          code: "FORBIDDEN",
-          message: "Not authorized to decide requests for this organization",
-        },
-      });
-    }
-
-    if (decision === "reject") {
-      const { rows: updatedRows } = await client.query(
-        `
-        update public.organization_membership_request
-        set
-          status = 'rejected',
-          decided_at = now(),
-          decided_by_user_id = $2,
-          decision_note = $3,
-          approved_role_id = null,
-          updated_at = now(),
-          updated_by = $2
-        where request_id = $1
-        returning
-          request_id,
-          status,
-          decided_at,
-          decided_by_user_id,
-          decision_note,
-          approved_role_id
-        `,
-        [request_id, actor.user_id, decision_note]
-      );
-
-      await client.query("COMMIT");
-      return res.status(200).json({ ok: true, data: updatedRows[0] });
-    }
-
-    const { rows: roleRows } = await client.query(
-      `
-      select role_id, role_code, role_name, is_active
-      from public.role
-      where role_id = $1
-      limit 1
-      `,
-      [approved_role_id]
-    );
-
-    if (roleRows.length === 0 || !roleRows[0].is_active) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        ok: false,
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "approved_role_id is invalid or inactive",
-        },
-      });
-    }
-
-    const approvedRole = roleRows[0];
-
-    if (
-      !actor.is_system_admin &&
-      String(approvedRole.role_code || "").toLowerCase() === "system_admin"
-    ) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        ok: false,
-        error: {
-          code: "FORBIDDEN",
-          message: "Only system admin may assign system_admin",
-        },
-      });
-    }
-
-    const { rows: requesterRows } = await client.query(
-      `
-      select user_id, is_active
-      from public.app_user
-      where user_id = $1
-      for update
-      `,
-      [reqRow.requester_user_id]
-    );
-
-    if (requesterRows.length === 0 || !requesterRows[0].is_active) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        ok: false,
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "Requester user not found or inactive",
-        },
-      });
-    }
-
-    await client.query(
-      `
-      insert into public.user_organization_membership (
-        user_id,
-        organization_id,
-        role_id,
-        is_active,
-        approved_at,
-        approved_by,
-        created_by,
-        updated_by
-      )
-      values ($1, $2, $3, true, now(), $4, $4, $4)
-      on conflict (user_id, organization_id)
-      do update set
-        role_id = excluded.role_id,
-        is_active = true,
-        approved_at = now(),
-        approved_by = excluded.approved_by,
-        deactivated_at = null,
-        deactivated_by = null,
-        deactivation_reason = null,
-        updated_at = now(),
-        updated_by = excluded.updated_by
-      `,
-      [reqRow.requester_user_id, targetOrgId, approved_role_id, actor.user_id]
-    );
-
-    await client.query(
-      `
-      update public.app_user
-      set
-        organization_id = $2,
-        active_organization_id = $2,
-        updated_at = now(),
-        updated_by = $3
-      where user_id = $1
-      `,
-      [reqRow.requester_user_id, targetOrgId, actor.user_id]
-    );
-
-    const { rows: finalRows } = await client.query(
-      `
-      update public.organization_membership_request
-      set
-        status = 'approved',
-        approved_role_id = $4,
-        decided_at = now(),
-        decided_by_user_id = $2,
-        decision_note = $3,
-        updated_at = now(),
-        updated_by = $2
-      where request_id = $1
-      returning
-        request_id,
-        status,
-        requested_role_id,
-        approved_role_id,
-        decided_at,
-        decided_by_user_id,
-        decision_note
-      `,
-      [request_id, actor.user_id, decision_note, approved_role_id]
-    );
-
-    await client.query("COMMIT");
-
-    return res.status(200).json({
-      ok: true,
-      data: {
-        request: finalRows[0],
-        applied: {
-          requester_user_id: reqRow.requester_user_id,
-          organization_id: targetOrgId,
-          membership_role_id: approved_role_id,
-          membership_role_code: approvedRole.role_code,
-          membership_role_name: approvedRole.role_name,
-        },
-      },
-    });
-  } catch (e) {
-    await client.query("ROLLBACK");
-    return res.status(500).json({
-      ok: false,
-      error: {
-        code: "SERVER_ERROR",
-        message: e?.message || "Unknown error",
-      },
-    });
-  } finally {
-    client.release();
-  }
+                <div style={{ color: TEXT_DIM, width: 70, textAlign: "right" }}>
+                  {fmt(d.weighted_score)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
 }
