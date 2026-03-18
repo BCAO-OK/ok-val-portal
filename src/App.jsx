@@ -25,9 +25,6 @@ import {
   useIsMobile,
 } from "./components/ui/UI";
 
-// Make layout more fluid/dynamic (use more of the window)
-// - remove hard content max
-// - keep comfortable padding via clamp
 const PAGE_PAD_X = "clamp(14px, 2.2vw, 40px)";
 const PAGE_PAD_Y = "clamp(12px, 1.6vw, 24px)";
 
@@ -80,7 +77,14 @@ function AccessStateCard({ title, subtitle, tone = "warn", children }) {
           gap: 14,
         }}
       >
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 46, height: 46, display: "grid", placeItems: "center" }}>
               <OkValLogo size={44} />
@@ -128,10 +132,7 @@ function PendingApprovalView({ me, onRefresh, loadingRefresh }) {
     me?.pending_request?.organization_name ||
     "your selected organization";
 
-  const submittedAt =
-    me?.pending_request?.submitted_at ||
-    me?.pending_request?.created_at ||
-    null;
+  const submittedAt = me?.pending_request?.submitted_at || me?.pending_request?.created_at || null;
 
   return (
     <AccessStateCard
@@ -158,7 +159,8 @@ function PendingApprovalView({ me, onRefresh, loadingRefresh }) {
       ) : null}
 
       <div style={{ fontSize: 13, color: TEXT_DIM_2, lineHeight: 1.5 }}>
-        Once an Assessor, Director, or System Admin approves your request, you will be able to access the application.
+        Once an Assessor, Director, or System Admin approves your request, you will be able to
+        access the application.
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -265,9 +267,7 @@ function RequestAccessView({ me, getToken, onSubmitted }) {
             outline: "none",
           }}
         >
-          <option value="">
-            {loading ? "Loading organizations..." : "Select an organization"}
-          </option>
+          <option value="">{loading ? "Loading organizations..." : "Select an organization"}</option>
           {(orgs || []).map((o) => (
             <option key={o.organization_id} value={o.organization_id}>
               {o.organization_name}
@@ -283,7 +283,8 @@ function RequestAccessView({ me, getToken, onSubmitted }) {
       ) : null}
 
       <div style={{ fontSize: 13, color: TEXT_DIM_2, lineHeight: 1.5 }}>
-        Submitting a request does not grant access. Your account will remain blocked until the request is approved.
+        Submitting a request does not grant access. Your account will remain blocked until the
+        request is approved.
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -305,7 +306,7 @@ function AppShell() {
   const isMobile = useIsMobile(980);
 
   const [me, setMe] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | ok | error
+  const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
   const [active, setActive] = useState("dashboard");
@@ -331,11 +332,15 @@ function AppShell() {
   }, []);
 
   const authz = useMemo(() => {
-    const globalRoleCode = String(me?.global_role_code || "").trim().toLowerCase();
-    const membershipRoleCode = String(me?.membership_role_code || "").trim().toLowerCase();
+    const globalRoleCode = String(me?.global_role_code || "")
+      .trim()
+      .toLowerCase();
+    const membershipRoleCode = String(me?.membership_role_code || "")
+      .trim()
+      .toLowerCase();
 
     const hasApprovedRole =
-      !!globalRoleCode || !!membershipRoleCode || Array.isArray(me?.roles) && me.roles.length > 0;
+      !!globalRoleCode || !!membershipRoleCode || (Array.isArray(me?.roles) && me.roles.length > 0);
 
     const hasApprovedOrg =
       !!me?.active_organization_id ||
@@ -394,35 +399,18 @@ function AppShell() {
     if (active === "questions") return Questions;
     if (active === "admin") return Admin;
     if (active === "quizzes") return Quizzes;
-    if (active === "reports") {
-      return () => (
-        <Placeholder
-          title="Reports"
-          description="Proficiency breakdown by domain and role-based reporting views."
-        />
-      );
-    }
+    if (active === "reports") return Reports;
     return Dashboard;
   })();
 
   const activeLabel = nav.find((x) => x.key === active)?.label || "Overview";
-  const orgName =
-    me?.active_organization?.organization_name ||
-    me?.organization?.organization_name ||
-    null;
+  const orgName = me?.active_organization?.organization_name || me?.organization?.organization_name || null;
   const roleName =
-    me?.membership_role_name ||
-    me?.roles?.[0]?.role_name ||
-    me?.global_role_name ||
-    null;
+    me?.membership_role_name || me?.roles?.[0]?.role_name || me?.global_role_name || null;
 
   if (status === "loading") {
     return (
-      <AccessStateCard
-        title="Loading"
-        subtitle="Checking your account access."
-        tone="warn"
-      >
+      <AccessStateCard title="Loading" subtitle="Checking your account access." tone="warn">
         <Pill tone="warn">
           <Icon name="dot" /> Loading account status…
         </Pill>
@@ -439,11 +427,7 @@ function AppShell() {
       >
         <div style={{ fontSize: 13, color: TEXT_DIM, lineHeight: 1.5 }}>{error}</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <GhostButton
-            onClick={loadMe}
-            icon={<Icon name="refresh" />}
-            ariaLabel="Retry account check"
-          >
+          <GhostButton onClick={loadMe} icon={<Icon name="refresh" />} ariaLabel="Retry account check">
             Retry
           </GhostButton>
         </div>
@@ -493,8 +477,12 @@ function AppShell() {
               onSelect={selectPage}
               footer={
                 <div style={{ display: "grid", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontWeight: 900 }}>Signed in</div>
+                  <div
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+                  >
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontWeight: 900 }}>
+                      Signed in
+                    </div>
                     <UserButton />
                   </div>
                   <div style={{ fontSize: 12, color: "rgba(255,255,255,0.62)" }}>
@@ -628,8 +616,12 @@ function AppShell() {
                 onSelect={selectPage}
                 footer={
                   <div style={{ display: "grid", gap: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontWeight: 900 }}>Signed in</div>
+                    <div
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+                    >
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.72)", fontWeight: 900 }}>
+                        Signed in
+                      </div>
                       <UserButton />
                     </div>
                     <div style={{ fontSize: 12, color: "rgba(255,255,255,0.62)" }}>
