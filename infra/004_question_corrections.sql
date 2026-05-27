@@ -10,12 +10,21 @@ BEGIN;
 --        Correct answer is B (State Board of Equalization), which equalizes AMONG counties.
 -- ============================================================
 
+-- Step 1: clear old correct answer
 UPDATE public.choice c
-SET is_correct = (c.choice_label = 'B')
+SET is_correct = false
 FROM public.question q
 WHERE c.question_id = q.question_id
   AND q.prompt = 'Which body has constitutional authority to equalize assessments among the counties?'
-  AND c.choice_label IN ('B', 'C');
+  AND c.choice_label = 'C';
+
+-- Step 2: set new correct answer
+UPDATE public.choice c
+SET is_correct = true
+FROM public.question q
+WHERE c.question_id = q.question_id
+  AND q.prompt = 'Which body has constitutional authority to equalize assessments among the counties?'
+  AND c.choice_label = 'B';
 
 UPDATE public.question
 SET
@@ -34,12 +43,21 @@ WHERE prompt = 'Which body has constitutional authority to equalize assessments 
 --             $1,000 (choice B) per 68 O.S. § 2890.1.
 -- ============================================================
 
+-- Step 1: clear old correct answer
 UPDATE public.choice c
-SET is_correct = (c.choice_label = 'B')
+SET is_correct = false
 FROM public.question q
 WHERE c.question_id = q.question_id
   AND q.prompt = 'The additional homestead exemption for certain low income seniors reduces assessed value by up to what amount?'
-  AND c.choice_label IN ('B', 'C');
+  AND c.choice_label = 'C';
+
+-- Step 2: set new correct answer
+UPDATE public.choice c
+SET is_correct = true
+FROM public.question q
+WHERE c.question_id = q.question_id
+  AND q.prompt = 'The additional homestead exemption for certain low income seniors reduces assessed value by up to what amount?'
+  AND c.choice_label = 'B';
 
 UPDATE public.question
 SET
@@ -58,12 +76,21 @@ WHERE prompt = 'The additional homestead exemption for certain low income senior
 --        Correct answer is A (Less than 1.00).
 -- ============================================================
 
+-- Step 1: clear old correct answer
 UPDATE public.choice c
-SET is_correct = (c.choice_label = 'A')
+SET is_correct = false
 FROM public.question q
 WHERE c.question_id = q.question_id
   AND q.prompt = 'If assessments are progressive across value ranges the price related differential will generally be what?'
-  AND c.choice_label IN ('A', 'C');
+  AND c.choice_label = 'C';
+
+-- Step 2: set new correct answer
+UPDATE public.choice c
+SET is_correct = true
+FROM public.question q
+WHERE c.question_id = q.question_id
+  AND q.prompt = 'If assessments are progressive across value ranges the price related differential will generally be what?'
+  AND c.choice_label = 'A';
 
 UPDATE public.question
 SET
@@ -81,12 +108,21 @@ WHERE prompt = 'If assessments are progressive across value ranges the price rel
 --        Correct answer is B (March 15).
 -- ============================================================
 
+-- Step 1: clear old correct answer
 UPDATE public.choice c
-SET is_correct = (c.choice_label = 'B')
+SET is_correct = false
 FROM public.question q
 WHERE c.question_id = q.question_id
   AND q.prompt = 'What is the statutory deadline for filing a business personal property rendition without penalty?'
-  AND c.choice_label IN ('B', 'C');
+  AND c.choice_label = 'C';
+
+-- Step 2: set new correct answer
+UPDATE public.choice c
+SET is_correct = true
+FROM public.question q
+WHERE c.question_id = q.question_id
+  AND q.prompt = 'What is the statutory deadline for filing a business personal property rendition without penalty?'
+  AND c.choice_label = 'B';
 
 UPDATE public.question
 SET
@@ -129,5 +165,3 @@ SET
 WHERE prompt = 'Which class of property is constitutionally limited to assessment at 10% of fair cash value?';
 
 COMMIT;
-
-
